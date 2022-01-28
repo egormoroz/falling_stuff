@@ -78,8 +78,7 @@ void World::update_particle(int x, int y) {
     m_grid[y][x].been_updated = true;
     switch (m_grid[y][x].pt) {
     case Sand:
-        update_general(x, y);
-        /* update_sand(x, y); */
+        update_sand(x, y);
         break;
     case Water:
         update_water(x, y);
@@ -92,7 +91,7 @@ void World::update_particle(int x, int y) {
     }
 }
 
-void World::update_general(int &x, int &y) {
+void World::update_sand(int x, int y) {
     //assuming vel.y > 0...
     Particle &p = m_grid[y][x];
     p.vel.y += 2; //gravity
@@ -124,52 +123,76 @@ void World::update_general(int &x, int &y) {
         swap(x, y, orig_x, orig_y);
 }
 
-void World::update_sand(int x, int y) {
-    int yy = y + 1, dst_x = x, dst_y = y;
-    if (yy < SIZE) {
-        if (m_grid[yy][x].pt == None || m_grid[yy][x].pt == Water) {
-            dst_y = yy;
-        } else if (x - 1 >= 0 && (m_grid[yy][x - 1].pt == None
-            || m_grid[yy][x - 1].pt == Water)) {
-            dst_y = yy;
-            dst_x = x - 1;
-        } else if (x + 1 < SIZE && (m_grid[yy][x + 1].pt == None
-            || m_grid[yy][x + 1].pt == Water)) {
-            dst_y = yy;
-            dst_x = x + 1;
-        }
-    }
-    if (x != dst_x || y != dst_y)
-        swap(x, y, dst_x, dst_y);
-}
-
 void World::update_water(int x, int y) {
     Particle &p = m_grid[y][x];
     float &fw = p.flow_vel;
     int orig_x = x, orig_y = y;
-    int move_points = fw, ms = move_points / abs(move_points);
 
+    //assuming p.vel.y >= 0
+    p.vel.y += 2; //gravity
+    int vy = std::max(1, p.vel.y / 16);
+
+    while (vy) {
+        if (y + 1 >= SIZE) {
+            p.vel.y = 0;
+            break;
+        }
+
+        if (m_grid[y + 1][x].pt == None) {
+            ++y;
+            p.water_hack_timer = WATER_HACK_TIMER;
+        } else if (x > 0 && m_grid[y + 1][x - 1].pt == None) {
+            ++y;
+            --x;
+            fw = -abs(fw);
+            p.vel.y = std::max(0, p.vel.y - 1);
+            p.water_hack_timer = WATER_HACK_TIMER;
+        } else if (x + 1 < SIZE && m_grid[y + 1][x + 1].pt == None) {
+            ++y;
+            ++x;
+            fw = abs(fw);
+            p.vel.y = std::max(0, p.vel.y - 1);
+            p.water_hack_timer = WATER_HACK_TIMER;
+        } else {
+            p.vel.y = std::min(m_grid[y + 1][x].vel.y, p.vel.y);
+            break;
+        }
+
+        --vy;
+    }
+
+    int move_points = abs(fw), ms = fw > 0 ? 1 : -1;
     fw -= ms * FLOW_DECAY;
     if (abs(fw) < 1.f)
         fw = ms;
 
-    while (y + 1 < SIZE && move_points) {
+    while (y + 1 < SIZE && move_points > 0) {
         bool can_down_left = x > 0 && m_grid[y + 1][x - 1].pt == None,
             can_down_right = x + 1 < SIZE && m_grid[y + 1][x + 1].pt == None;
         if (m_grid[y + 1][x].pt == None) {
             ++y;
             p.water_hack_timer = WATER_HACK_TIMER;
+            --move_points; //take extra, because this case is already handled with first loop
         } else if (can_down_left) {
-            ++y;
-            --x;
-            fw = -abs(fw) - FLOW_ACC;
-            p.water_hack_timer = WATER_HACK_TIMER;
+            if (ms > 0 && can_down_right) {
+                ++y;
+                ++x;
+                fw = abs(fw) + FLOW_ACC;
+                p.water_hack_timer = WATER_HACK_TIMER;
+            } else {
+                ++y;
+                --x;
+                fw = -abs(fw) - FLOW_ACC;
+                p.water_hack_timer = WATER_HACK_TIMER;
+            }
+            --move_points; //same here
         } else if (can_down_right) {
             ++y;
             ++x;
             fw = abs(fw) + FLOW_ACC;
             p.water_hack_timer = WATER_HACK_TIMER;
-        } else if (true || m_grid[y + 1][x].pt == Water) {
+            --move_points;
+        } else/* if (m_grid[y + 1][x].pt == Water)*/ {
             if (x + ms >= 0 && x + ms < SIZE && m_grid[y][x + ms].pt == None) {
                 fw += ms * FLOW_ACC;
                 x += ms;
@@ -189,10 +212,10 @@ void World::update_water(int x, int y) {
             } else {
                 break;
             }
-        } else {
+        }/* else {
             break;
-        }
-        move_points -= ms;
+        }*/
+        --move_points;
     }
 
     if (abs(fw) > MAX_FLOW)

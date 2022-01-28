@@ -85,7 +85,6 @@ private:
 
 //Physics
     void update_particle(int x, int y);
-    void update_general(int &x, int &y);
     void update_sand(int x, int y);
     void update_water(int x, int y);
 

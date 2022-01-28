@@ -102,13 +102,15 @@ private:
             int R = m_brush_size;
             int lx = std::max(0, x - R), rx = std::min(x + R, SIZE - 1),
                 ly = std::max(0, y - R), ry = std::min(y + R, SIZE - 1);
+            int flow_switch = -1;
             for (y = ly; y <= ry; ++y) {
                 for (x = lx; x <= rx; ++x) {
                     Particle p;
                     p.pt = m_brush_type;
-                    p.flow_vel = -1.;
+                    p.flow_vel = flow_switch;
                     p.water_hack_timer = WATER_HACK_TIMER;
                     m_world->set_particle(x, y, p);
+                    flow_switch *= -1;
                 }
             }
         }
