@@ -67,6 +67,9 @@ private:
                 case sf::Keyboard::Escape:
                     m_window.close();
                     break;
+                case sf::Keyboard::Space:
+                    m_world->dump_buffer("asdf.png");
+                    break;
                 case sf::Keyboard::Num0:
                     m_brush_type = None;
                     m_brush.setOutlineColor(sf::Color::White);

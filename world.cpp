@@ -56,6 +56,7 @@ void World::render() {
 
 void World::set_particle(int x, int y, Particle p) { 
     m_dirty_rect.extend(x, y);
+    m_dirty_rect.extend_by_until(1, SIZE - 1, SIZE - 1);
     m_needs_redrawing.extend(x, y);
     m_grid[y][x] = p;
 }
@@ -66,6 +67,10 @@ const MyRect& World::dirty_rect() const {
     return m_needs_redrawing;
 }
 
+void World::dump_buffer(const char *path) {
+    m_buffer.get_texture().copyToImage().saveToFile(path);
+}
+
 void World::update_particle(int x, int y) {
     std::pair<int, int> p;
     if (m_grid[y][x].been_updated)
@@ -73,7 +78,8 @@ void World::update_particle(int x, int y) {
     m_grid[y][x].been_updated = true;
     switch (m_grid[y][x].pt) {
     case Sand:
-        update_sand(x, y);
+        update_general(x, y);
+        /* update_sand(x, y); */
         break;
     case Water:
         update_water(x, y);
@@ -84,6 +90,38 @@ void World::update_particle(int x, int y) {
     default:
         break;
     }
+}
+
+void World::update_general(int &x, int &y) {
+    //assuming vel.y > 0...
+    Particle &p = m_grid[y][x];
+    p.vel.y += 2; //gravity
+    int vy = std::max(1, p.vel.y / 16), orig_x = x, orig_y = y;
+    while (vy) {
+        if (y + 1 >= SIZE) {
+            p.vel.y = 0;
+            break;
+        }
+
+        if (m_grid[y + 1][x].pt == None) {
+            ++y;
+        } else if (x > 0 && m_grid[y + 1][x - 1].pt == None) {
+            ++y;
+            --x;
+            p.vel.y = std::max(0, p.vel.y - 1);
+        } else if (x + 1 < SIZE && m_grid[y + 1][x + 1].pt == None) {
+            ++y;
+            ++x;
+            p.vel.y = std::max(0, p.vel.y - 1);
+        } else {
+            p.vel.y = std::min(m_grid[y + 1][x].vel.y, p.vel.y);
+            break;
+        }
+
+        --vy;
+    }
+    if (x != orig_x || y != orig_y)
+        swap(x, y, orig_x, orig_y);
 }
 
 void World::update_sand(int x, int y) {

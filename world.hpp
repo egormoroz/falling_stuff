@@ -25,10 +25,11 @@ enum ParticleType {
 };
 
 struct Particle {
-    ParticleType pt;
-    bool been_updated;
-    float flow_vel;
-    float water_hack_timer;
+    ParticleType pt = None;
+    bool been_updated = false;
+    float flow_vel = -1.f;
+    float water_hack_timer = WATER_HACK_TIMER;
+    V2i vel;
 };
 
 struct MyRect {
@@ -74,6 +75,8 @@ public:
 
     const MyRect& dirty_rect() const;
 
+    void dump_buffer(const char *path);
+
 private:
     Particle m_grid[SIZE][SIZE];
     RenderBuffer m_buffer;
@@ -82,6 +85,7 @@ private:
 
 //Physics
     void update_particle(int x, int y);
+    void update_general(int &x, int &y);
     void update_sand(int x, int y);
     void update_water(int x, int y);
 

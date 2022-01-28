@@ -12,7 +12,7 @@ class RenderBuffer : public sf::NonCopyable {
 public:
     RenderBuffer(int width, int height);
 
-    void clear(const sf::Color &color = sf::Color::Black);
+    void clear(const sf::Color &color = sf::Color::White);
 
     sf::Color& pixel(int x, int y);
     const sf::Color& pixel(int x, int y) const;

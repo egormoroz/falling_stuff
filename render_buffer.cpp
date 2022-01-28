@@ -3,7 +3,9 @@
 #include <algorithm>
 
 RenderBuffer::RenderBuffer(int width, int height) {
-    assert(m_texture.create(width, height));
+    if (!m_texture.create(width, height)) {
+        printf("FAILED TO CREATE TEXTURE\n");
+    }
     m_pixels.resize(width * height);
     std::fill(m_pixels.begin(), m_pixels.end(), sf::Color::Black);
 }
