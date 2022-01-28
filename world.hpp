@@ -4,14 +4,16 @@
 #include "render_buffer.hpp"
 #include <SFML/Graphics/Drawable.hpp>
 
+const float FIXED_FRAME_TIME = 1.f / 60;
 const int SCR_SIZE = 900;
 const int SIZE = 256;
 const float PARTICLE_SIZE = float(SCR_SIZE) / SIZE;
-/* const float GRAVITY_ACC = 0.05f; */
-/* const float SPREAD_ACC = 0.05; */
-const float GRAVITY_ACC = 0.00f;
-const float SPREAD_ACC = 0.05;
-const float MAX_SPREAD = 20.f;
+const float FLOW_ACC = 0.08f;
+const float FLOW_DECAY = 0.04f;
+const float MAX_FLOW = 20.f;
+const float HOT_WATER_TH = 15.f;
+//Lifetime of "hot" water particles in secs (we remove those, since they look ugly)
+const float HOT_WATER_LT = 3.f;
 
 using V2f = sf::Vector2f;
 using V2i = sf::Vector2i;
@@ -26,8 +28,8 @@ enum ParticleType {
 struct Particle {
     ParticleType pt;
     bool been_updated;
-    V2f vel;
     float flow_vel;
+    float lifetime;
 };
 
 class World : public sf::Drawable {

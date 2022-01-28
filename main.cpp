@@ -5,7 +5,7 @@
 #include "world.hpp"
 #include "perf_tracker.hpp"
 
-const sf::Time FIXED_FRAME_TIME = sf::seconds(1.f / 60);
+const sf::Time SF_FIXED_TIME = sf::seconds(FIXED_FRAME_TIME);
 
 class Game {
 public:
@@ -27,9 +27,9 @@ public:
             sf::Time delta = m_clk.restart();
             m_tracker.push(delta.asSeconds() * 1000.f);
             m_delta += delta;
-            while (m_delta > FIXED_FRAME_TIME) {
+            while (m_delta > SF_FIXED_TIME) {
                 update();
-                m_delta -= FIXED_FRAME_TIME;
+                m_delta -= SF_FIXED_TIME;
             }
 
             render();
@@ -95,9 +95,9 @@ private:
             for (y = ly; y <= ry; ++y) {
                 for (x = lx; x <= rx; ++x) {
                     Particle &p = m_world->particle(x, y);
-                    p.vel = V2f(0, 1);
                     p.pt = m_brush_type;
                     p.flow_vel = -1.;
+                    p.lifetime = HOT_WATER_LT;
                 }
             }
         }
