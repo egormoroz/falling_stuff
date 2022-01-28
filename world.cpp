@@ -47,7 +47,10 @@ void World::render() {
             redraw_particle(x, y);
         }
     }
-    m_buffer.flush();
+    if (m_needs_redrawing.is_valid()) {
+        m_buffer.flush(m_needs_redrawing.left, m_needs_redrawing.top, 
+            m_needs_redrawing.right, m_needs_redrawing.bottom);
+    }
     m_needs_redrawing = {SIZE, SIZE, -1, -1};
 }
 

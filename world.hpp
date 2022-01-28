@@ -34,6 +34,10 @@ struct Particle {
 struct MyRect {
     int left, top, right, bottom;
 
+    bool is_valid() const {
+        return right >= left && bottom >= top;
+    }
+
     void extend_by_until(int d, int max_right, int max_bottom) {
         left = std::max(left - d, 0);
         top = std::max(top - d, 0);
