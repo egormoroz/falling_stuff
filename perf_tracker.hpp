@@ -9,8 +9,11 @@ public:
 
     void push(float frame_time);
 
+    float recorded_period() const;
     float avg_frame_time() const;
     float avg_fps() const;
+    float longest() const;
+
 private:
     float m_frame_times[MAX_FRAME_TIMES];
     float m_sum;

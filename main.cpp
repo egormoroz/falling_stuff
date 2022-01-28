@@ -94,7 +94,7 @@ private:
                 ly = std::max(0, y - R), ry = std::min(y + R, SIZE - 1);
             for (y = ly; y <= ry; ++y) {
                 for (x = lx; x <= rx; ++x) {
-                    Particle &p = m_world->grid[y][x];
+                    Particle &p = m_world->particle(x, y);
                     p.vel = V2f(0, 1);
                     p.pt = m_brush_type;
                     p.flow_vel = -1.;
@@ -104,7 +104,6 @@ private:
     }
 
     void update() {
-        /* m_world->grid[0][SIZE / 2].pt = Water; */
         m_world->update();
     }
 
@@ -117,9 +116,11 @@ private:
 
         m_window.display();
 
-        if (m_tracker_clock.getElapsedTime().asSeconds() > 0.5f) {
-            printf("FPS: %6f, Avg frame time: %6f\n", 
-                m_tracker.avg_fps(), m_tracker.avg_frame_time());
+        if (m_tracker_clock.getElapsedTime().asSeconds() 
+            >= m_tracker.recorded_period() / 1000.f) 
+        {
+            printf("FPS: %6f, Avg frame time: %6f, Longest frame time: %6f\n", 
+                m_tracker.avg_fps(), m_tracker.avg_frame_time(), m_tracker.longest());
             m_tracker_clock.restart();
         }
     }

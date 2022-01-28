@@ -30,23 +30,24 @@ struct Particle {
     float flow_vel;
 };
 
-struct World : public sf::Drawable {
-    Particle grid[SIZE][SIZE];
-    RenderBuffer m_buffer;
-    int8_t update_pass_dir = 1;
-
+class World : public sf::Drawable {
+public:
     World();
 
-    void update_particle(int x, int y);
     void update();
     void render();
 
+    Particle& particle(int x, int y);
+    const Particle& particle(int x, int y) const;
+
 private:
+    Particle m_grid[SIZE][SIZE];
+    RenderBuffer m_buffer;
+    int8_t update_pass_dir = 1;
+
 //Physics
-    std::pair<int, int> update_general(int x, int y);
-
+    void update_particle(int x, int y);
     void update_sand(int x, int y);
-
     void update_water(int x, int y);
 
 //Graphics
