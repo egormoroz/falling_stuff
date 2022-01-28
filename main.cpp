@@ -12,10 +12,14 @@ public:
     Game(sf::RenderWindow &window)
         : m_window(window), m_world(new World()) 
     { 
-        m_brush.setSize(2.f * V2f(m_brush_size, m_brush_size));
+        m_brush.setSize(2.f * PARTICLE_SIZE * V2f(m_brush_size, m_brush_size));
         m_brush.setOutlineColor(sf::Color::White);
         m_brush.setOutlineThickness(1.f);
         m_brush.setFillColor(sf::Color::Transparent);
+
+        m_dirty_rect.setFillColor(sf::Color::Transparent);
+        m_dirty_rect.setOutlineColor(sf::Color::Red);
+        m_dirty_rect.setOutlineThickness(1.f);
     }
 
     void run() {
@@ -40,6 +44,7 @@ private:
     sf::RenderWindow &m_window;
     std::unique_ptr<World> m_world;
     float m_brush_size = 1;
+    sf::RectangleShape m_dirty_rect;
     sf::RectangleShape m_brush;
     ParticleType m_brush_type;
     sf::Clock m_clk, m_tracker_clock;
@@ -54,6 +59,8 @@ private:
                 m_window.close();
             } else if (event.type == sf::Event::MouseWheelScrolled) {
                 m_brush_size += event.mouseWheelScroll.delta;
+                if (m_brush_size < 1)
+                    m_brush_size = 1;
                 m_brush.setSize(2 * PARTICLE_SIZE * V2f(m_brush_size, m_brush_size));
             } else if (event.type == sf::Event::KeyPressed) {
                 switch (event.key.code) {
@@ -94,10 +101,11 @@ private:
                 ly = std::max(0, y - R), ry = std::min(y + R, SIZE - 1);
             for (y = ly; y <= ry; ++y) {
                 for (x = lx; x <= rx; ++x) {
-                    Particle &p = m_world->particle(x, y);
+                    Particle p;
                     p.pt = m_brush_type;
                     p.flow_vel = -1.;
-                    p.lifetime = HOT_WATER_LT;
+                    p.water_hack_timer = WATER_HACK_TIMER;
+                    m_world->set_particle(x, y, p);
                 }
             }
         }
@@ -105,6 +113,12 @@ private:
 
     void update() {
         m_world->update();
+        MyRect r = m_world->dirty_rect();
+        V2f pos = V2f(r.left, r.top) * PARTICLE_SIZE,
+            size = V2f(r.right - r.left + 1, r.bottom - r.top + 1) * PARTICLE_SIZE;
+
+        m_dirty_rect.setPosition(pos);
+        m_dirty_rect.setSize(size);
     }
 
     void render() {
@@ -113,6 +127,7 @@ private:
         m_world->render();
         m_window.draw(*m_world);
         m_window.draw(m_brush);
+        m_window.draw(m_dirty_rect);
 
         m_window.display();
 

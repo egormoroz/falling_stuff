@@ -5,6 +5,13 @@
 
 World::World() : m_buffer(SIZE, SIZE) {
     memset(m_grid, 0, sizeof(m_grid));
+    invalidate();
+}
+
+
+void World::invalidate() {
+    m_dirty_rect = {0, 0, SIZE - 1, SIZE - 1};
+    m_needs_redrawing = m_dirty_rect;
 }
 
 void World::update() {
@@ -12,56 +19,49 @@ void World::update() {
         for (int x = 0; x < SIZE; ++x)
             m_grid[y][x].been_updated = false;
 
+    MyRect dirty_rect = m_dirty_rect;
+    m_dirty_rect = {SIZE, SIZE, -1, -1};
+
     if (update_pass_dir > 0) {
-        for (int y = SIZE - 1; y >= 0; --y) {
-            for (int x = 0; x < SIZE; ++x) {
+        for (int y = dirty_rect.bottom; y >= dirty_rect.top; --y) {
+            for (int x = dirty_rect.left; x <= dirty_rect.right; ++x) {
                 update_particle(x, y);
             }
         }
     } else {
-        for (int y = SIZE - 1; y >= 0; --y) {
-            for (int x = SIZE - 1; x >= 0; --x) {
+        for (int y = dirty_rect.bottom; y >= dirty_rect.top; --y) {
+            for (int x = dirty_rect.right; x >= dirty_rect.left; --x) {
                 update_particle(x, y);
             }
         }
     }
 
+    m_needs_redrawing.extend(m_dirty_rect);
+    m_dirty_rect.extend_by_until(1, SIZE - 1, SIZE - 1);
     update_pass_dir *= -1;
 }
 
 void World::render() {
-    m_buffer.clear();
-    for (int y = 0; y < SIZE; ++y) {
-        for (int x = 0; x < SIZE; ++x) {
-            switch (m_grid[y][x].pt) {
-            case Sand:
-                m_buffer.pixel(x, y) = sf::Color::Yellow;
-                break;
-            case Water:
-            {
-                float val = (abs(m_grid[y][x].flow_vel) - 1) / MAX_FLOW;
-                //Blue -> Red
-                float r = (1.f - 0.f) * val + 0.f,
-                    g = 0.f,
-                    b = (0.f - 1.f) * val + 1.f;
-                m_buffer.pixel(x, y) = sf::Color(
-                    255 * r, 255 * g, 255 * b
-                );
-                break;
-            }
-            case Wood:
-                m_buffer.pixel(x, y) = sf::Color(64, 0, 0);
-                break;
-            default:
-                break;
-            }
+    for (int y = m_needs_redrawing.top; y <= m_needs_redrawing.bottom; ++y) {
+        for (int x = m_needs_redrawing.left; x <= m_needs_redrawing.right; ++x) {
+            redraw_particle(x, y);
         }
     }
     m_buffer.flush();
+    m_needs_redrawing = {SIZE, SIZE, -1, -1};
 }
 
-Particle& World::particle(int x, int y) { return m_grid[y][x]; }
+void World::set_particle(int x, int y, Particle p) { 
+    m_dirty_rect.extend(x, y);
+    m_needs_redrawing.extend(x, y);
+    m_grid[y][x] = p;
+}
+
 const Particle& World::particle(int x, int y) const { return m_grid[y][x]; }
+
+const MyRect& World::dirty_rect() const {
+    return m_needs_redrawing;
+}
 
 void World::update_particle(int x, int y) {
     std::pair<int, int> p;
@@ -99,7 +99,7 @@ void World::update_sand(int x, int y) {
         }
     }
     if (x != dst_x || y != dst_y)
-        std::swap(m_grid[y][x], m_grid[dst_y][dst_x]);
+        swap(x, y, dst_x, dst_y);
 }
 
 void World::update_water(int x, int y) {
@@ -117,26 +117,24 @@ void World::update_water(int x, int y) {
             can_down_right = x + 1 < SIZE && m_grid[y + 1][x + 1].pt == None;
         if (m_grid[y + 1][x].pt == None) {
             ++y;
-            //water is really flowing, reset timer
-            p.lifetime = HOT_WATER_LT;
+            p.water_hack_timer = WATER_HACK_TIMER;
         } else if (can_down_left) {
             ++y;
             --x;
             fw = -abs(fw) - FLOW_ACC;
-            p.lifetime = HOT_WATER_LT;
+            p.water_hack_timer = WATER_HACK_TIMER;
         } else if (can_down_right) {
             ++y;
             ++x;
             fw = abs(fw) + FLOW_ACC;
-            p.lifetime = HOT_WATER_LT;
-        } else if (m_grid[y + 1][x].pt == Water) {
+            p.water_hack_timer = WATER_HACK_TIMER;
+        } else if (true || m_grid[y + 1][x].pt == Water) {
             if (x + ms >= 0 && x + ms < SIZE && m_grid[y][x + ms].pt == None) {
                 fw += ms * FLOW_ACC;
                 x += ms;
                 //if particle is just floating atop, out of place, we should clean it up
-                if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > HOT_WATER_TH) {
-                    p.lifetime -= FIXED_FRAME_TIME;
-                    /* printf("%f\n", p.lifetime); */
+                if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > WATER_HACK_TH) {
+                    p.water_hack_timer -= FIXED_FRAME_TIME;
                 }
             } else if (x - ms >= 0 && x - ms < SIZE && m_grid[y][x - ms].pt == None) {
                 fw += ms * FLOW_ACC;
@@ -144,9 +142,8 @@ void World::update_water(int x, int y) {
                 ms = -ms;
                 move_points = ms;
                 x += ms;
-                if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > HOT_WATER_TH) {
-                    p.lifetime -= FIXED_FRAME_TIME;
-                    /* printf("%f\n", p.lifetime); */
+                if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > WATER_HACK_TH) {
+                    p.water_hack_timer -= FIXED_FRAME_TIME;
                 }
             } else {
                 break;
@@ -160,14 +157,55 @@ void World::update_water(int x, int y) {
     if (abs(fw) > MAX_FLOW)
         fw = ms * MAX_FLOW;
 
-    if (p.lifetime > 0) {
+
+    if (p.water_hack_timer > 0) {
         if (x != orig_x || y != orig_y) {
-            std::swap(m_grid[y][x], m_grid[orig_y][orig_x]);
+            swap(x, y, orig_x, orig_y);
         }
     } else {
-        //remove this particle
-        p.pt = None;
-        /* printf("die!!!!\n"); */
+        //Dirty hack.
+        if (abs(orig_x - x) == 1) {
+            //fill the other cell
+            m_grid[orig_y][orig_x].water_hack_timer = WATER_HACK_TIMER;
+            m_grid[y][x] = m_grid[orig_y][orig_x];
+            m_dirty_rect.extend(x, y);
+        } else {
+            //remove the leftovers
+            m_grid[orig_y][orig_x].pt = None;
+            m_dirty_rect.extend(orig_x, orig_y);
+        }
+    }
+}
+
+void World::swap(int x, int y, int xx, int yy) {
+    std::swap(m_grid[y][x], m_grid[yy][xx]);
+    m_dirty_rect.extend(x, y);
+    m_dirty_rect.extend(xx, yy);
+}
+
+void World::redraw_particle(int x, int y) {
+    switch (m_grid[y][x].pt) {
+    case Sand:
+        m_buffer.pixel(x, y) = sf::Color::Yellow;
+        break;
+    case Water:
+    {
+        /* float val = (abs(m_grid[y][x].flow_vel) - 1) / MAX_FLOW; */
+        /* float r = (1.f - 0.f) * val + 0.f, */
+        /*     g = 0.f, */
+        /*     b = (0.f - 1.f) * val + 1.f; */
+        /* m_buffer.pixel(x, y) = sf::Color( */
+        /*     255 * r, 255 * g, 255 * b */
+        /* ); */
+        m_buffer.pixel(x, y) = sf::Color::Blue;
+        break;
+    }
+    case Wood:
+        m_buffer.pixel(x, y) = sf::Color(64, 0, 0);
+        break;
+    default:
+        m_buffer.pixel(x, y) = sf::Color::Black;
+        break;
     }
 }
 
