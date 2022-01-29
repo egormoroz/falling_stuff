@@ -22,10 +22,13 @@ enum ParticleType {
     Sand,
     Water,
     Wood,
+    FlyingWater, //created by water splashes
 };
 
+//can pack those into union if memory usage is an issue
 struct Particle {
     ParticleType pt = None;
+    ParticleType orig_pt = None; //restore from 
     bool been_updated = false;
     float flow_vel = -1.f;
     float water_hack_timer = WATER_HACK_TIMER;
@@ -46,7 +49,7 @@ struct MyRect {
         bottom = std::min(bottom + d, max_bottom);
     }
 
-    void extend(int x, int y) {
+    void include(int x, int y) {
         left = std::min(left, x);
         top = std::min(top, y);
         right = std::max(right, x);
@@ -85,11 +88,15 @@ private:
 
 //Physics
     void update_particle(int x, int y);
+    void update_flying_water(int x, int y);
     void update_sand(int x, int y);
     void update_water(int x, int y);
 
+    void push_water_out(int x, int y, int dir);
+
 //Utility
     void swap(int x, int y, int xx, int yy);
+    void remove(int x, int y);
 
 //Graphics
     void redraw_particle(int x, int y);

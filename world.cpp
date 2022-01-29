@@ -15,8 +15,8 @@ void World::invalidate() {
 }
 
 void World::update() {
-    for (int y = 0; y < SIZE; ++y)
-        for (int x = 0; x < SIZE; ++x)
+    for (int y = m_dirty_rect.top; y <= m_dirty_rect.bottom; ++y)
+        for (int x = m_dirty_rect.left; x <= m_dirty_rect.right; ++x)
             m_grid[y][x].been_updated = false;
 
     MyRect dirty_rect = m_dirty_rect;
@@ -55,9 +55,9 @@ void World::render() {
 }
 
 void World::set_particle(int x, int y, Particle p) { 
-    m_dirty_rect.extend(x, y);
+    m_dirty_rect.include(x, y);
     m_dirty_rect.extend_by_until(1, SIZE - 1, SIZE - 1);
-    m_needs_redrawing.extend(x, y);
+    m_needs_redrawing.include(x, y);
     m_grid[y][x] = p;
 }
 
@@ -86,11 +86,21 @@ void World::update_particle(int x, int y) {
     case Wood:
         //do nothing...
         break;
+    case FlyingWater:
+        update_flying_water(x, y);
+        break;
     default:
         break;
     }
 }
 
+void World::update_flying_water(int x, int y) {
+    Particle &p = m_grid[y][x];
+
+}
+
+//TODO: The code here is really messy. Refactor me!
+//Or at least add some comments...
 void World::update_sand(int x, int y) {
     Particle &p = m_grid[y][x];
     p.vel.y += 2; //gravity
@@ -105,15 +115,27 @@ void World::update_sand(int x, int y) {
             break;
         }
 
-        if (m_grid[y + sy][x].pt == None) {
+        if (m_grid[y + sy][x].pt == None
+            || m_grid[y + sy][x].pt == Water) 
+        {
+            if (m_grid[y + sy][x].pt == Water)
+                push_water_out(x, y + sy, sx);
             y += sy;
-        } else if (x > 0 && m_grid[y + sy][x - 1].pt == None) {
+        } else if (x > 0 && (m_grid[y + sy][x - 1].pt == None
+            || m_grid[y + sy][x - 1].pt == Water)) 
+        {
+            if (m_grid[y + sy][x - 1].pt == Water)
+                push_water_out(x - 1, y + sy, -1);
             y += sy;
             --x;
             if (p.vel.y)
                 p.vel.y -= sy;
             p.vel.x -= 2;
-        } else if (x + 1 < SIZE && m_grid[y + sy][x + 1].pt == None) {
+        } else if (x + 1 < SIZE && (m_grid[y + sy][x + 1].pt == None
+            || m_grid[y + sy][x + 1].pt == Water)) 
+        {
+            if (m_grid[y + sy][x + 1].pt == Water)
+                push_water_out(x + 1, y + sy, 1);
             y += sy;
             ++x;
             if (p.vel.y)
@@ -215,29 +237,26 @@ void World::update_water(int x, int y) {
             fw = abs(fw) + FLOW_ACC;
             p.water_hack_timer = WATER_HACK_TIMER;
             --move_points;
-        } else/* if (m_grid[y + 1][x].pt == Water)*/ {
-            if (x + ms >= 0 && x + ms < SIZE && m_grid[y][x + ms].pt == None) {
-                fw += ms * FLOW_ACC;
-                x += ms;
-                //if particle is just floating atop, out of place, we should clean it up
-                if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > WATER_HACK_TH) {
-                    p.water_hack_timer -= FIXED_FRAME_TIME;
-                }
-            } else if (x - ms >= 0 && x - ms < SIZE && m_grid[y][x - ms].pt == None) {
-                fw += ms * FLOW_ACC;
-                fw = -fw;
-                ms = -ms;
-                move_points = ms;
-                x += ms;
-                if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > WATER_HACK_TH) {
-                    p.water_hack_timer -= FIXED_FRAME_TIME;
-                }
-            } else {
-                break;
+        } else if (x + ms >= 0 && x + ms < SIZE && m_grid[y][x + ms].pt == None) {
+            fw += ms * FLOW_ACC;
+            x += ms;
+            //if particle is just floating atop, out of place, we should clean it up
+            if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > WATER_HACK_TH) {
+                p.water_hack_timer -= FIXED_FRAME_TIME;
             }
-        }/* else {
+        } else if (x - ms >= 0 && x - ms < SIZE && m_grid[y][x - ms].pt == None) {
+            fw += ms * FLOW_ACC;
+            fw = -fw;
+            ms = -ms;
+            move_points = ms;
+            x += ms;
+            if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > WATER_HACK_TH) {
+                p.water_hack_timer -= FIXED_FRAME_TIME;
+            }
+        } else {
             break;
-        }*/
+        }
+        
         --move_points;
     }
 
@@ -255,19 +274,46 @@ void World::update_water(int x, int y) {
             //fill the other cell
             m_grid[orig_y][orig_x].water_hack_timer = WATER_HACK_TIMER;
             m_grid[y][x] = m_grid[orig_y][orig_x];
-            m_dirty_rect.extend(x, y);
+            m_dirty_rect.include(x, y);
         } else {
             //remove the leftovers
-            m_grid[orig_y][orig_x].pt = None;
-            m_dirty_rect.extend(orig_x, orig_y);
+            remove(orig_x, orig_y);
         }
     }
 }
 
+void World::push_water_out(int x, int y, int dir) {
+    const int dx = 1, dy = 1;
+    if (y < dy) {
+        /* remove(x, y); */
+        return;
+    }
+    bool top_left_empty = x > dx && m_grid[y - dy][x - dx].pt == None,
+         top_right_empty = x + dx < SIZE && m_grid[y - dy][x + dx].pt == None,
+         top_empty = m_grid[y - dy][x].pt == None;
+    if (dir < 0 && top_left_empty)
+        swap(x, y, x - dx, y - dy);
+    else if (dir > 0 && top_right_empty)
+        swap(x, y, x + dx, y - dy);
+    else if (top_left_empty)
+        swap(x, y, x - dx, y - dy);
+    else if (top_right_empty)
+        swap(x, y, x + dx, y - dy);
+    else if (top_empty)
+        swap(x, y, x, y - dy);
+    /* else */
+    /*     remove(x, y); */
+}
+
 void World::swap(int x, int y, int xx, int yy) {
     std::swap(m_grid[y][x], m_grid[yy][xx]);
-    m_dirty_rect.extend(x, y);
-    m_dirty_rect.extend(xx, yy);
+    m_dirty_rect.include(x, y);
+    m_dirty_rect.include(xx, yy);
+}
+
+void World::remove(int x, int y) {
+    m_grid[y][x].pt = None;
+    m_dirty_rect.include(x, y);
 }
 
 void World::redraw_particle(int x, int y) {
@@ -276,17 +322,8 @@ void World::redraw_particle(int x, int y) {
         m_buffer.pixel(x, y) = sf::Color::Yellow;
         break;
     case Water:
-    {
-        /* float val = (abs(m_grid[y][x].flow_vel) - 1) / MAX_FLOW; */
-        /* float r = (1.f - 0.f) * val + 0.f, */
-        /*     g = 0.f, */
-        /*     b = (0.f - 1.f) * val + 1.f; */
-        /* m_buffer.pixel(x, y) = sf::Color( */
-        /*     255 * r, 255 * g, 255 * b */
-        /* ); */
         m_buffer.pixel(x, y) = sf::Color::Blue;
         break;
-    }
     case Wood:
         m_buffer.pixel(x, y) = sf::Color(64, 0, 0);
         break;
