@@ -92,33 +92,56 @@ void World::update_particle(int x, int y) {
 }
 
 void World::update_sand(int x, int y) {
-    //assuming vel.y > 0...
     Particle &p = m_grid[y][x];
     p.vel.y += 2; //gravity
-    int vy = std::max(1, p.vel.y / 16), orig_x = x, orig_y = y;
+    int vy = std::max(1, abs(p.vel.y) / 16), sy = p.vel.y > 0 ? 1 : -1,
+        vx = abs(p.vel.x / 16), sx = p.vel.x > 0 ? 1 : -1,
+        orig_x = x, orig_y = y;
     while (vy) {
-        if (y + 1 >= SIZE) {
+        if (y + sy >= SIZE || y + sy < 0) {
             p.vel.y = 0;
+            if (p.vel.x)
+                p.vel.x -= sx;
             break;
         }
 
-        if (m_grid[y + 1][x].pt == None) {
-            ++y;
-        } else if (x > 0 && m_grid[y + 1][x - 1].pt == None) {
-            ++y;
+        if (m_grid[y + sy][x].pt == None) {
+            y += sy;
+        } else if (x > 0 && m_grid[y + sy][x - 1].pt == None) {
+            y += sy;
             --x;
-            p.vel.y = std::max(0, p.vel.y - 1);
-        } else if (x + 1 < SIZE && m_grid[y + 1][x + 1].pt == None) {
-            ++y;
+            if (p.vel.y)
+                p.vel.y -= sy;
+            p.vel.x -= 2;
+        } else if (x + 1 < SIZE && m_grid[y + sy][x + 1].pt == None) {
+            y += sy;
             ++x;
-            p.vel.y = std::max(0, p.vel.y - 1);
+            if (p.vel.y)
+                p.vel.y -= sy;
+            p.vel.x += 2;
         } else {
-            p.vel.y = std::min(m_grid[y + 1][x].vel.y, p.vel.y);
+            V2i vel = m_grid[y + sy][x].vel;
+            if (abs(vel.y) < abs(p.vel.y))
+                p.vel.y = vel.y;
+            if (p.vel.x)
+                p.vel.x -= sx;
             break;
         }
 
         --vy;
     }
+
+    vx = abs(p.vel.x) / 16; 
+    sx = p.vel.x > 0 ? 1 : -1;
+    while (vx) {
+        if (x + sx >= SIZE || x + sx < 0 || m_grid[y][x + sx].pt != None) {
+            p.vel.x = 0;
+            break;
+        }
+        x += sx;
+        --vx;
+    }
+
     if (x != orig_x || y != orig_y)
         swap(x, y, orig_x, orig_y);
 }
