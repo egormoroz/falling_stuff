@@ -5,14 +5,14 @@
 #include "world.hpp"
 #include "perf_tracker.hpp"
 
-const sf::Time SF_FIXED_TIME = sf::seconds(FIXED_FRAME_TIME);
-
 class Game {
 public:
     Game(sf::RenderWindow &window)
         : m_window(window), m_world(new World()) 
     { 
-        m_brush.setSize(2.f * PARTICLE_SIZE * V2f(m_brush_size, m_brush_size));
+        window.setView(sf::View(sf::FloatRect(0.f, 0.f, SIZE, SIZE)));
+
+        m_brush.setSize(2.f * V2f(m_brush_size, m_brush_size));
         m_brush.setOutlineColor(sf::Color::White);
         m_brush.setOutlineThickness(1.f);
         m_brush.setFillColor(sf::Color::Transparent);
@@ -31,14 +31,16 @@ public:
             sf::Time delta = m_clk.restart();
             m_tracker.push(delta.asSeconds() * 1000.f);
             m_delta += delta;
-            while (m_delta > SF_FIXED_TIME) {
+            while (m_delta > FIXED_FRAME_TIME) {
                 update();
-                m_delta -= SF_FIXED_TIME;
+                m_delta -= FIXED_FRAME_TIME;
             }
 
             render();
         }
     }
+
+
 
 private:
     sf::RenderWindow &m_window;
@@ -50,18 +52,18 @@ private:
     sf::Clock m_clk, m_tracker_clock;
     sf::Time m_delta;
     FpsTracker m_tracker;
+    bool m_draw_rect;
 
     void pull_events() {
         sf::Event event;
         while (m_window.pollEvent(event)) {
-
             if (event.type == sf::Event::Closed) {
                 m_window.close();
             } else if (event.type == sf::Event::MouseWheelScrolled) {
                 m_brush_size += event.mouseWheelScroll.delta;
                 if (m_brush_size < 1)
                     m_brush_size = 1;
-                m_brush.setSize(2 * PARTICLE_SIZE * V2f(m_brush_size, m_brush_size));
+                m_brush.setSize(2.f * V2f(m_brush_size, m_brush_size));
             } else if (event.type == sf::Event::KeyPressed) {
                 switch (event.key.code) {
                 case sf::Keyboard::Escape:
@@ -96,29 +98,31 @@ private:
             }
         }
 
-        V2i pos = sf::Mouse::getPosition(m_window);
-        float scaled_bsize = m_brush_size * PARTICLE_SIZE;
-        m_brush.setPosition(pos.x - scaled_bsize, pos.y - scaled_bsize);
+        V2f pos = m_window.mapPixelToCoords(sf::Mouse::getPosition(m_window));
+        m_brush.setPosition(pos - V2f(m_brush_size, m_brush_size));
 
         if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) {
-            int x = std::max(0, int(pos.x / PARTICLE_SIZE)) % SIZE, 
-                y = std::max(0, int(pos.y / PARTICLE_SIZE)) % SIZE;
+
+            int x = std::max(0, int(pos.x)) % SIZE, 
+                y = std::max(0, int(pos.y)) % SIZE;
             int R = m_brush_size;
-            int lx = std::max(0, x - R), rx = std::min(x + R, SIZE - 1),
-                ly = std::max(0, y - R), ry = std::min(y + R, SIZE - 1);
-            for (y = ly; y <= ry; ++y) {
-                for (x = lx; x <= rx; ++x) {
-                    m_world->spawn_particle(x, y, m_brush_type);
-                }
-            }
+            m_world->spawn_cloud(x, y, R, m_brush_type);
+            /* int lx = std::max(0, x - R), rx = std::min(x + R, SIZE - 1), */
+            /*     ly = std::max(0, y - R), ry = std::min(y + R, SIZE - 1); */
+            /* for (y = ly; y <= ry; ++y) { */
+            /*     for (x = lx; x <= rx; ++x) { */
+            /*         m_world->spawn_particle(x, y, m_brush_type); */
+            /*     } */
+            /* } */
         }
     }
 
     void update() {
         m_world->update();
-        MyRect r = m_world->dirty_rect();
-        V2f pos = V2f(r.left, r.top) * PARTICLE_SIZE,
-            size = V2f(r.right - r.left + 1, r.bottom - r.top + 1) * PARTICLE_SIZE;
+        Rect r = m_world->dirty_rect();
+        V2f pos = V2f(r.left, r.top),
+            size = V2f(r.right - r.left + 1, r.bottom - r.top + 1);
+        m_draw_rect = !r.is_empty();
 
         m_dirty_rect.setPosition(pos);
         m_dirty_rect.setSize(size);
@@ -130,7 +134,8 @@ private:
         m_world->render();
         m_window.draw(*m_world);
         m_window.draw(m_brush);
-        m_window.draw(m_dirty_rect);
+        if (m_draw_rect)
+            m_window.draw(m_dirty_rect);
 
         m_window.display();
 

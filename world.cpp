@@ -2,6 +2,25 @@
 #include <SFML/Graphics/Sprite.hpp>
 #include <SFML/Graphics/RenderTarget.hpp>
 
+const float FLOW_ACC = 0.08f;
+const float FLOW_DECAY = 0.04f;
+const float MAX_FLOW = SIZE / 6.f;
+const float WATER_HACK_TH = MAX_FLOW * 0.75f;
+const float WATER_HACK_TIMER = 0.5f;
+const sf::Time FIRE_LIFETIME = sf::seconds(2.f);
+
+
+const size_t NUM_FIRE_FLICKERS = 5;
+const sf::Time FLICKER_DURATION = sf::milliseconds(50);
+const sf::Color FIRE_FLICKER_COLORS[NUM_FIRE_FLICKERS] = {
+    //  R,   G,   B,   A
+    { 255, 255,   0, 255 },
+    { 255, 200,   0, 255 },
+    { 255, 150,   0, 255 },
+    { 255, 100,   0, 255 },
+    { 255,  50,   0, 255 },
+};
+
 //helper
 
 sf::Color interpolate_color(sf::Color zero, sf::Color one, float d) {
@@ -10,15 +29,16 @@ sf::Color interpolate_color(sf::Color zero, sf::Color one, float d) {
         + zero;
 }
 
-World::World() : m_buffer(SIZE, SIZE) {
+World::World() : m_buffer(SIZE, SIZE), m_dirty_rect(SIZE, SIZE),
+    m_needs_redrawing(SIZE, SIZE), m_flicker_dist(0, NUM_FIRE_FLICKERS - 1)
+{
     memset(m_grid, 0, sizeof(m_grid));
-    invalidate();
 }
 
 
 void World::invalidate() {
-    m_dirty_rect = {0, 0, SIZE - 1, SIZE - 1};
-    m_needs_redrawing = m_dirty_rect;
+    m_dirty_rect.reset(SIZE - 1, SIZE - 1);
+    m_needs_redrawing.reset(SIZE - 1, SIZE - 1);
 }
 
 void World::update() {
@@ -26,8 +46,8 @@ void World::update() {
         for (int x = m_dirty_rect.left; x <= m_dirty_rect.right; ++x)
             m_grid[y][x].been_updated = false;
 
-    MyRect dirty_rect = m_dirty_rect;
-    m_dirty_rect = {SIZE, SIZE, -1, -1};
+    Rect dirty_rect = m_dirty_rect;
+    m_dirty_rect.clear(SIZE - 1, SIZE - 1);
 
     if (m_update_pass_dir > 0) {
         for (int y = dirty_rect.bottom; y >= dirty_rect.top; --y) {
@@ -43,8 +63,10 @@ void World::update() {
         }
     }
 
-    m_needs_redrawing.extend(m_dirty_rect);
-    m_dirty_rect.extend_by_until(1, SIZE - 1, SIZE - 1);
+    m_needs_redrawing.include(m_dirty_rect);
+    m_dirty_rect.extend_by(1);
+    m_needs_redrawing.fit(SIZE, SIZE);
+    m_dirty_rect.fit(SIZE, SIZE);
     m_update_pass_dir *= -1;
 }
 
@@ -54,27 +76,42 @@ void World::render() {
             redraw_particle(x, y);
         }
     }
-    if (m_needs_redrawing.is_valid()) {
+    if (!m_needs_redrawing.is_empty()) {
         m_buffer.flush(m_needs_redrawing.left, m_needs_redrawing.top, 
             m_needs_redrawing.right, m_needs_redrawing.bottom);
     }
-    m_needs_redrawing = {SIZE, SIZE, -1, -1};
+    m_needs_redrawing.clear(SIZE - 1, SIZE - 1);
 }
 
 void World::spawn_particle(int x, int y, ParticleType pt) {
-    Particle &p = m_grid[y][x];
-    p.been_updated = false;
-    p.flow_vel = m_flow_switch;
-    p.life_time = FIRE_LIFETIME;
-    p.pt = pt;
-    p.vel = V2i();
-
-    m_flow_switch *= -1;
-    m_dirty_rect.include(x, y);
+    put_particle(x, y, pt);
+    m_dirty_rect.include(x, y, 1);
     m_needs_redrawing.include(x, y);
+    m_dirty_rect.fit(SIZE, SIZE);
+    m_needs_redrawing.fit(SIZE, SIZE);
 }
 
-const MyRect& World::dirty_rect() const {
+void World::spawn_cloud(int cx, int cy, int r, ParticleType pt) {
+    Rect rect;
+    rect.clear(SIZE, SIZE);
+    rect.include(cx, cy, r);
+    rect.fit(SIZE, SIZE);
+
+    for (int y = rect.top; y <= rect.bottom; ++y) {
+        for (int x = rect.left; x <= rect.right; ++x) {
+            int dx = x - cx, dy = y - cy;
+            float d = sqrt(std::max(0, r*r - (dx*dx + dy*dy))) / r;
+            if (d > m_probs_dist(m_gen))
+                put_particle(x, y, pt);
+        }
+    }
+    m_dirty_rect.include(rect);
+    m_dirty_rect.extend_by(1);
+    m_dirty_rect.fit(SIZE, SIZE);
+    m_needs_redrawing.include(rect);
+}
+
+const Rect& World::dirty_rect() const {
     return m_needs_redrawing;
 }
 
@@ -173,6 +210,7 @@ void World::update_sand(int x, int y) {
         swap(x, y, orig_x, orig_y);
 }
 
+//TODO: This one is huuuge. Add comments?
 void World::update_water(int x, int y) {
     Particle &p = m_grid[y][x];
     float &fw = p.flow_vel;
@@ -182,6 +220,7 @@ void World::update_water(int x, int y) {
     p.vel.y += 2; //gravity
     int vy = std::max(1, p.vel.y / 16);
 
+    //Handle gravity
     while (vy) {
         if (y + 1 >= SIZE) {
             p.vel.y = 0;
@@ -216,6 +255,7 @@ void World::update_water(int x, int y) {
     if (abs(fw) < 1.f)
         fw = ms;
 
+    //Handle flowing/spreading
     while (y + 1 < SIZE && move_points > 0) {
         bool can_down_left = x > 0 && m_grid[y + 1][x - 1].pt == None,
             can_down_right = x + 1 < SIZE && m_grid[y + 1][x + 1].pt == None;
@@ -242,18 +282,16 @@ void World::update_water(int x, int y) {
         } else if (x + ms >= 0 && x + ms < SIZE && m_grid[y][x + ms].pt == None) {
             fw += ms * FLOW_ACC;
             x += ms;
-            //if particle is just floating atop, out of place, we should clean it up
             if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > WATER_HACK_TH) {
-                p.water_hack_timer -= FIXED_FRAME_TIME;
+                p.water_hack_timer -= FIXED_FRAME_TIME.asSeconds();
             }
         } else if (x - ms >= 0 && x - ms < SIZE && m_grid[y][x - ms].pt == None) {
             fw += ms * FLOW_ACC;
             fw = -fw;
             ms = -ms;
-            move_points = ms;
             x += ms;
             if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > WATER_HACK_TH) {
-                p.water_hack_timer -= FIXED_FRAME_TIME;
+                p.water_hack_timer -= FIXED_FRAME_TIME.asSeconds();
             }
         } else {
             break;
@@ -286,12 +324,17 @@ void World::update_water(int x, int y) {
 
 void World::update_fire(int x, int y) {
     Particle &p = m_grid[y][x];
-    p.life_time -= FIXED_FRAME_TIME;
-    m_dirty_rect.include(x, y);
-    if (p.life_time < 0)
+    if (p.lifetime == sf::Time::Zero)
+        return;
+    if (p.lifetime > FIXED_FRAME_TIME) {
+        p.lifetime -= FIXED_FRAME_TIME;
+    } else {
         p.pt = None;
+    }
+    m_dirty_rect.include(x, y);
 }
 
+//maybe this is too much logic??
 void World::push_water_out(int x, int y, int dir) {
     const int dx = 1, dy = 1;
     if (y < dy) {
@@ -326,6 +369,16 @@ void World::remove(int x, int y) {
     m_dirty_rect.include(x, y);
 }
 
+void World::put_particle(int x, int y, ParticleType pt) {
+    Particle &p = m_grid[y][x];
+    p.been_updated = false;
+    p.flow_vel = m_flow_switch;
+    p.pt = pt;
+    p.vel = V2i();
+    p.lifetime = FIRE_LIFETIME + float(m_flicker_dist(m_gen)) * FLICKER_DURATION;
+    m_flow_switch *= -1;
+}
+
 void World::redraw_particle(int x, int y) {
     switch (m_grid[y][x].pt) {
     case None:
@@ -341,12 +394,11 @@ void World::redraw_particle(int x, int y) {
         m_buffer.pixel(x, y) = sf::Color(64, 0, 0);
         break;
     case Fire:
-        m_buffer.pixel(x, y) = interpolate_color(
-            sf::Color(255, 80, 0), //orange
-            sf::Color::Yellow,
-            m_grid[y][x].life_time / FIRE_LIFETIME
-        );
+    {
+        size_t idx = m_grid[y][x].lifetime / FLICKER_DURATION;
+        m_buffer.pixel(x, y) = FIRE_FLICKER_COLORS[idx % NUM_FIRE_FLICKERS];
         break;
+    }
     default:
         break;
     }
@@ -354,7 +406,6 @@ void World::redraw_particle(int x, int y) {
 
 void World::draw(sf::RenderTarget &target, sf::RenderStates states) const {
     sf::Sprite sprite(m_buffer.get_texture());
-    sprite.setScale(PARTICLE_SIZE, PARTICLE_SIZE);
     target.draw(sprite, states);
 }
 

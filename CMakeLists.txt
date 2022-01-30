@@ -12,11 +12,11 @@ list(TRANSFORM EXTRA_LIBS PREPEND ${LIBS_FOLDER})
 
 project(falling_stuff)
 
-add_executable(falling_stuff main.cpp render_buffer.cpp world.cpp perf_tracker.cpp)
+add_executable(falling_stuff main.cpp render_buffer.cpp world.cpp perf_tracker.cpp util.cpp)
 
 target_include_directories(falling_stuff PUBLIC
     "${PROJECT_BINARY_DIR}"
     ${EXTRA_INCLUDES})
 
-target_link_libraries(falling_stuff PUBLIC  ${EXTRA_LIBS})
+target_link_libraries(falling_stuff PUBLIC ${EXTRA_LIBS})
 
