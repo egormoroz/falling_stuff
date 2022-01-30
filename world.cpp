@@ -2,6 +2,13 @@
 #include <SFML/Graphics/Sprite.hpp>
 #include <SFML/Graphics/RenderTarget.hpp>
 
+//helper
+
+sf::Color interpolate_color(sf::Color zero, sf::Color one, float d) {
+    sf::Color diff = one - zero;
+    return sf::Color(diff.r * d, diff.g * d, diff.b * d, diff.a * d)
+        + zero;
+}
 
 World::World() : m_buffer(SIZE, SIZE) {
     memset(m_grid, 0, sizeof(m_grid));
@@ -22,7 +29,7 @@ void World::update() {
     MyRect dirty_rect = m_dirty_rect;
     m_dirty_rect = {SIZE, SIZE, -1, -1};
 
-    if (update_pass_dir > 0) {
+    if (m_update_pass_dir > 0) {
         for (int y = dirty_rect.bottom; y >= dirty_rect.top; --y) {
             for (int x = dirty_rect.left; x <= dirty_rect.right; ++x) {
                 update_particle(x, y);
@@ -38,7 +45,7 @@ void World::update() {
 
     m_needs_redrawing.extend(m_dirty_rect);
     m_dirty_rect.extend_by_until(1, SIZE - 1, SIZE - 1);
-    update_pass_dir *= -1;
+    m_update_pass_dir *= -1;
 }
 
 void World::render() {
@@ -54,14 +61,18 @@ void World::render() {
     m_needs_redrawing = {SIZE, SIZE, -1, -1};
 }
 
-void World::set_particle(int x, int y, Particle p) { 
-    m_dirty_rect.include(x, y);
-    m_dirty_rect.extend_by_until(1, SIZE - 1, SIZE - 1);
-    m_needs_redrawing.include(x, y);
-    m_grid[y][x] = p;
-}
+void World::spawn_particle(int x, int y, ParticleType pt) {
+    Particle &p = m_grid[y][x];
+    p.been_updated = false;
+    p.flow_vel = m_flow_switch;
+    p.life_time = FIRE_LIFETIME;
+    p.pt = pt;
+    p.vel = V2i();
 
-const Particle& World::particle(int x, int y) const { return m_grid[y][x]; }
+    m_flow_switch *= -1;
+    m_dirty_rect.include(x, y);
+    m_needs_redrawing.include(x, y);
+}
 
 const MyRect& World::dirty_rect() const {
     return m_needs_redrawing;
@@ -86,17 +97,11 @@ void World::update_particle(int x, int y) {
     case Wood:
         //do nothing...
         break;
-    case FlyingWater:
-        update_flying_water(x, y);
-        break;
+    case Fire:
+        update_fire(x, y);
     default:
         break;
     }
-}
-
-void World::update_flying_water(int x, int y) {
-    Particle &p = m_grid[y][x];
-
 }
 
 //TODO: The code here is really messy. Refactor me!
@@ -217,7 +222,6 @@ void World::update_water(int x, int y) {
         if (m_grid[y + 1][x].pt == None) {
             ++y;
             p.water_hack_timer = WATER_HACK_TIMER;
-            --move_points; //take extra, because this case is already handled with first loop
         } else if (can_down_left) {
             if (ms > 0 && can_down_right) {
                 ++y;
@@ -230,13 +234,11 @@ void World::update_water(int x, int y) {
                 fw = -abs(fw) - FLOW_ACC;
                 p.water_hack_timer = WATER_HACK_TIMER;
             }
-            --move_points; //same here
         } else if (can_down_right) {
             ++y;
             ++x;
             fw = abs(fw) + FLOW_ACC;
             p.water_hack_timer = WATER_HACK_TIMER;
-            --move_points;
         } else if (x + ms >= 0 && x + ms < SIZE && m_grid[y][x + ms].pt == None) {
             fw += ms * FLOW_ACC;
             x += ms;
@@ -282,6 +284,14 @@ void World::update_water(int x, int y) {
     }
 }
 
+void World::update_fire(int x, int y) {
+    Particle &p = m_grid[y][x];
+    p.life_time -= FIXED_FRAME_TIME;
+    m_dirty_rect.include(x, y);
+    if (p.life_time < 0)
+        p.pt = None;
+}
+
 void World::push_water_out(int x, int y, int dir) {
     const int dx = 1, dy = 1;
     if (y < dy) {
@@ -318,6 +328,9 @@ void World::remove(int x, int y) {
 
 void World::redraw_particle(int x, int y) {
     switch (m_grid[y][x].pt) {
+    case None:
+        m_buffer.pixel(x, y) = sf::Color::Black;
+        break;
     case Sand:
         m_buffer.pixel(x, y) = sf::Color::Yellow;
         break;
@@ -327,8 +340,14 @@ void World::redraw_particle(int x, int y) {
     case Wood:
         m_buffer.pixel(x, y) = sf::Color(64, 0, 0);
         break;
+    case Fire:
+        m_buffer.pixel(x, y) = interpolate_color(
+            sf::Color(255, 80, 0), //orange
+            sf::Color::Yellow,
+            m_grid[y][x].life_time / FIRE_LIFETIME
+        );
+        break;
     default:
-        m_buffer.pixel(x, y) = sf::Color::Black;
         break;
     }
 }

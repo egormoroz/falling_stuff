@@ -10,9 +10,10 @@ const int SIZE = 256;
 const float PARTICLE_SIZE = float(SCR_SIZE) / SIZE;
 const float FLOW_ACC = 0.08f;
 const float FLOW_DECAY = 0.04f;
-const float MAX_FLOW = SIZE / 12.f;
+const float MAX_FLOW = SIZE / 6.f;
 const float WATER_HACK_TH = MAX_FLOW * 0.75f;
 const float WATER_HACK_TIMER = 0.5f;
+const float FIRE_LIFETIME = 2.f; //secs
 
 using V2f = sf::Vector2f;
 using V2i = sf::Vector2i;
@@ -22,17 +23,17 @@ enum ParticleType {
     Sand,
     Water,
     Wood,
-    FlyingWater, //created by water splashes
+    Fire,
 };
 
 //can pack those into union if memory usage is an issue
 struct Particle {
     ParticleType pt = None;
-    ParticleType orig_pt = None; //restore from 
     bool been_updated = false;
     float flow_vel = -1.f;
     float water_hack_timer = WATER_HACK_TIMER;
     V2i vel;
+    float life_time;
 };
 
 struct MyRect {
@@ -73,9 +74,7 @@ public:
     void update();
     void render();
 
-    void set_particle(int x, int y, Particle p);
-    const Particle& particle(int x, int y) const;
-
+    void spawn_particle(int x, int y, ParticleType pt);
     const MyRect& dirty_rect() const;
 
     void dump_buffer(const char *path);
@@ -83,14 +82,14 @@ public:
 private:
     Particle m_grid[SIZE][SIZE];
     RenderBuffer m_buffer;
-    int8_t update_pass_dir = 1;
+    int8_t m_update_pass_dir = 1, m_flow_switch = -1;
     MyRect m_dirty_rect, m_needs_redrawing;
 
 //Physics
     void update_particle(int x, int y);
-    void update_flying_water(int x, int y);
     void update_sand(int x, int y);
     void update_water(int x, int y);
+    void update_fire(int x, int y);
 
     void push_water_out(int x, int y, int dir);
 

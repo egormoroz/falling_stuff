@@ -86,6 +86,10 @@ private:
                     m_brush.setOutlineColor(sf::Color(64, 0, 0));
                     m_brush_type = Wood;
                     break;
+                case sf::Keyboard::Num4:
+                    m_brush.setOutlineColor(sf::Color(255, 80, 0));
+                    m_brush_type = Fire;
+                    break;
                 default:
                     break;
                 };
@@ -102,15 +106,9 @@ private:
             int R = m_brush_size;
             int lx = std::max(0, x - R), rx = std::min(x + R, SIZE - 1),
                 ly = std::max(0, y - R), ry = std::min(y + R, SIZE - 1);
-            int flow_switch = -1;
             for (y = ly; y <= ry; ++y) {
                 for (x = lx; x <= rx; ++x) {
-                    Particle p;
-                    p.pt = m_brush_type;
-                    p.flow_vel = flow_switch;
-                    p.water_hack_timer = WATER_HACK_TIMER;
-                    m_world->set_particle(x, y, p);
-                    flow_switch *= -1;
+                    m_world->spawn_particle(x, y, m_brush_type);
                 }
             }
         }
