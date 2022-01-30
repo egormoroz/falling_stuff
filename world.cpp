@@ -7,11 +7,12 @@ const float FLOW_DECAY = 0.04f;
 const float MAX_FLOW = SIZE / 6.f;
 const float WATER_HACK_TH = MAX_FLOW * 0.75f;
 const float WATER_HACK_TIMER = 0.5f;
-const sf::Time FIRE_LIFETIME = sf::seconds(2.f);
-
+const float FIRE_LT_MEAN = 4.f;
+const float FIRE_LT_DEV = 1.f;
+const float FIRE_SPREAD_DELAY = -4.f;
 
 const size_t NUM_FIRE_FLICKERS = 5;
-const sf::Time FLICKER_DURATION = sf::milliseconds(50);
+const sf::Time FLICKER_DURATION = sf::milliseconds(100);
 const sf::Color FIRE_FLICKER_COLORS[NUM_FIRE_FLICKERS] = {
     //  R,   G,   B,   A
     { 255, 255,   0, 255 },
@@ -29,16 +30,29 @@ sf::Color interpolate_color(sf::Color zero, sf::Color one, float d) {
         + zero;
 }
 
+template<typename F>
+void visit_adjacent(int x, int y, F f) {
+    const V2i offs[8] = { 
+        { 1, 0}, {1,-1}, { 0,-1}, 
+        {-1,-1},         {-1, 0}, 
+        {-1, 1}, {0, 1}, { 1, 1} 
+    };
+    for (auto &off: offs) {
+        if (f(x + off.x, y + off.y))
+            break;
+    }
+}
+
 World::World() : m_buffer(SIZE, SIZE), m_dirty_rect(SIZE, SIZE),
-    m_needs_redrawing(SIZE, SIZE), m_flicker_dist(0, NUM_FIRE_FLICKERS - 1)
+    m_needs_redrawing(SIZE, SIZE)
 {
     memset(m_grid, 0, sizeof(m_grid));
 }
 
 
 void World::invalidate() {
-    m_dirty_rect.reset(SIZE - 1, SIZE - 1);
-    m_needs_redrawing.reset(SIZE - 1, SIZE - 1);
+    m_dirty_rect.reset(SIZE, SIZE);
+    m_needs_redrawing.reset(SIZE, SIZE);
 }
 
 void World::update() {
@@ -47,7 +61,7 @@ void World::update() {
             m_grid[y][x].been_updated = false;
 
     Rect dirty_rect = m_dirty_rect;
-    m_dirty_rect.clear(SIZE - 1, SIZE - 1);
+    m_dirty_rect.clear(SIZE, SIZE);
 
     if (m_update_pass_dir > 0) {
         for (int y = dirty_rect.bottom; y >= dirty_rect.top; --y) {
@@ -80,7 +94,7 @@ void World::render() {
         m_buffer.flush(m_needs_redrawing.left, m_needs_redrawing.top, 
             m_needs_redrawing.right, m_needs_redrawing.bottom);
     }
-    m_needs_redrawing.clear(SIZE - 1, SIZE - 1);
+    m_needs_redrawing.clear(SIZE, SIZE);
 }
 
 void World::spawn_particle(int x, int y, ParticleType pt) {
@@ -283,7 +297,7 @@ void World::update_water(int x, int y) {
             fw += ms * FLOW_ACC;
             x += ms;
             if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > WATER_HACK_TH) {
-                p.water_hack_timer -= FIXED_FRAME_TIME.asSeconds();
+                p.water_hack_timer -= FIXED_TIME_STEP.asSeconds();
             }
         } else if (x - ms >= 0 && x - ms < SIZE && m_grid[y][x - ms].pt == None) {
             fw += ms * FLOW_ACC;
@@ -291,7 +305,7 @@ void World::update_water(int x, int y) {
             ms = -ms;
             x += ms;
             if ((y < 1 || m_grid[y - 1][x].pt != Water) && abs(fw) > WATER_HACK_TH) {
-                p.water_hack_timer -= FIXED_FRAME_TIME.asSeconds();
+                p.water_hack_timer -= FIXED_TIME_STEP.asSeconds();
             }
         } else {
             break;
@@ -324,13 +338,21 @@ void World::update_water(int x, int y) {
 
 void World::update_fire(int x, int y) {
     Particle &p = m_grid[y][x];
-    if (p.lifetime == sf::Time::Zero)
-        return;
-    if (p.lifetime > FIXED_FRAME_TIME) {
-        p.lifetime -= FIXED_FRAME_TIME;
-    } else {
-        p.pt = None;
+    if (exp(FIRE_SPREAD_DELAY * p.lifetime.asSeconds() / FIRE_LT_MEAN) >= m_probs_dist(m_gen)) {
+        visit_adjacent(x, y, [&](int x, int y) {
+            //maybe roll the dice each time instead?
+            if (Rect(SIZE, SIZE).contains(x, y) && m_grid[y][x].pt == Wood) {
+                put_particle(x, y, Fire);
+                m_dirty_rect.include(x, y);
+                /* return true; */
+            }
+            return false;
+        });
     }
+
+    p.lifetime -= FIXED_TIME_STEP;
+    if (p.lifetime <= sf::Time::Zero)
+        p.pt = None;
     m_dirty_rect.include(x, y);
 }
 
@@ -371,12 +393,18 @@ void World::remove(int x, int y) {
 
 void World::put_particle(int x, int y, ParticleType pt) {
     Particle &p = m_grid[y][x];
-    p.been_updated = false;
-    p.flow_vel = m_flow_switch;
-    p.pt = pt;
     p.vel = V2i();
-    p.lifetime = FIRE_LIFETIME + float(m_flicker_dist(m_gen)) * FLICKER_DURATION;
-    m_flow_switch *= -1;
+    p.pt = pt;
+
+    if (pt == Water) {
+        p.flow_vel = m_flow_switch;
+        m_flow_switch *= -1;
+    }
+
+    if (pt == Fire) {
+        std::normal_distribution<float> d(FIRE_LT_MEAN, FIRE_LT_DEV);
+        p.lifetime = sf::seconds(d(m_gen));
+    }
 }
 
 void World::redraw_particle(int x, int y) {

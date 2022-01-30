@@ -11,6 +11,7 @@ public:
         : m_window(window), m_world(new World()) 
     { 
         window.setView(sf::View(sf::FloatRect(0.f, 0.f, SIZE, SIZE)));
+        m_window.setFramerateLimit(60); 
 
         m_brush.setSize(2.f * V2f(m_brush_size, m_brush_size));
         m_brush.setOutlineColor(sf::Color::White);
@@ -23,17 +24,16 @@ public:
     }
 
     void run() {
-        m_window.setFramerateLimit(60); //TODO: don't rely on this
 
         while (m_window.isOpen()) {
             pull_events();
 
             sf::Time delta = m_clk.restart();
             m_tracker.push(delta.asSeconds() * 1000.f);
-            m_delta += delta;
-            while (m_delta > FIXED_FRAME_TIME) {
+            m_delta_acc += delta;
+            while (m_delta_acc > FIXED_TIME_STEP) {
                 update();
-                m_delta -= FIXED_FRAME_TIME;
+                m_delta_acc -= FIXED_TIME_STEP;
             }
 
             render();
@@ -50,7 +50,7 @@ private:
     sf::RectangleShape m_brush;
     ParticleType m_brush_type;
     sf::Clock m_clk, m_tracker_clock;
-    sf::Time m_delta;
+    sf::Time m_delta_acc;
     FpsTracker m_tracker;
     bool m_draw_rect;
 

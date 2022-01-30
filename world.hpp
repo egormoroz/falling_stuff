@@ -7,9 +7,10 @@
 #include <random>
 #include "util.hpp"
 
-const sf::Time FIXED_FRAME_TIME = sf::seconds(1.f / 60);
+//60 ticks per second
+const sf::Time FIXED_TIME_STEP = sf::seconds(1.f / 60);
 const int SCR_SIZE = 900;
-const int SIZE = 512;
+const int SIZE = 256;
 
 using V2f = sf::Vector2f;
 using V2i = sf::Vector2i;
@@ -54,7 +55,6 @@ private:
     int8_t m_update_pass_dir = 1, m_flow_switch = -1;
     Rect m_dirty_rect, m_needs_redrawing;
     std::mt19937 m_gen;
-    std::uniform_int_distribution<size_t> m_flicker_dist;
     std::uniform_real_distribution<float> m_probs_dist;
 
 //Physics
