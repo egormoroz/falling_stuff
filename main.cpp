@@ -1,30 +1,32 @@
 #include <SFML/Graphics.hpp>
 #include <algorithm>
-#include <memory>
 #include <cassert>
-#include "world.hpp"
-#include "perf_tracker.hpp"
+#include "simulation.hpp"
+#include "fps_tracker.hpp"
+#include "grid_painter.hpp"
+
+const int WIDTH = 256;
+const int HEIGHT = 256;
+const int CHUNK_SIZE = 32;
+
 
 class Game {
 public:
     Game(sf::RenderWindow &window)
-        : m_window(window), m_world(new World()) 
+        : m_window(window), m_sim(WIDTH, HEIGHT, CHUNK_SIZE)
     { 
-        window.setView(sf::View(sf::FloatRect(0.f, 0.f, SIZE, SIZE)));
+        window.setView(sf::View(sf::FloatRect(0.f, 0.f, WIDTH, HEIGHT)));
         m_window.setFramerateLimit(60); 
 
         m_brush.setSize(2.f * V2f(m_brush_size, m_brush_size));
         m_brush.setOutlineColor(sf::Color::White);
-        m_brush.setOutlineThickness(1.f);
+        m_brush.setOutlineThickness(WIDTH / float(window.getSize().x));
         m_brush.setFillColor(sf::Color::Transparent);
 
-        m_dirty_rect.setFillColor(sf::Color::Transparent);
-        m_dirty_rect.setOutlineColor(sf::Color::Red);
-        m_dirty_rect.setOutlineThickness(1.f);
+        m_grid.update(WIDTH, HEIGHT, CHUNK_SIZE, CHUNK_SIZE);
     }
 
     void run() {
-
         while (m_window.isOpen()) {
             pull_events();
 
@@ -40,19 +42,20 @@ public:
         }
     }
 
-
-
 private:
     sf::RenderWindow &m_window;
-    std::unique_ptr<World> m_world;
+    Simulation m_sim;
+
     float m_brush_size = 1;
-    sf::RectangleShape m_dirty_rect;
     sf::RectangleShape m_brush;
     ParticleType m_brush_type;
+
     sf::Clock m_clk, m_tracker_clock;
     sf::Time m_delta_acc;
     FpsTracker m_tracker;
-    bool m_draw_rect;
+
+    GridPainter m_grid;
+
 
     void pull_events() {
         sf::Event event;
@@ -69,28 +72,25 @@ private:
                 case sf::Keyboard::Escape:
                     m_window.close();
                     break;
-                case sf::Keyboard::Space:
-                    m_world->dump_buffer("asdf.png");
-                    break;
                 case sf::Keyboard::Num0:
-                    m_brush_type = None;
+                    m_brush_type = ParticleType::None;
                     m_brush.setOutlineColor(sf::Color::White);
                     break;
                 case sf::Keyboard::Num1:
                     m_brush.setOutlineColor(sf::Color::Yellow);
-                    m_brush_type = Sand;
+                    m_brush_type = ParticleType::Sand;
                     break;
                 case sf::Keyboard::Num2:
                     m_brush.setOutlineColor(sf::Color::Blue);
-                    m_brush_type = Water;
+                    m_brush_type = ParticleType::Water;
                     break;
                 case sf::Keyboard::Num3:
-                    m_brush.setOutlineColor(sf::Color(64, 0, 0));
-                    m_brush_type = Wood;
+                    m_brush.setOutlineColor(sf::Color(80, 0, 0));
+                    m_brush_type = ParticleType::Wood;
                     break;
                 case sf::Keyboard::Num4:
-                    m_brush.setOutlineColor(sf::Color(255, 80, 0));
-                    m_brush_type = Fire;
+                    m_brush.setOutlineColor(sf::Color(255, 200, 0));
+                    m_brush_type = ParticleType::Fire;
                     break;
                 default:
                     break;
@@ -103,39 +103,32 @@ private:
 
         if (sf::Mouse::isButtonPressed(sf::Mouse::Button::Left)) {
 
-            int x = std::max(0, int(pos.x)) % SIZE, 
-                y = std::max(0, int(pos.y)) % SIZE;
-            int R = m_brush_size;
-            m_world->spawn_cloud(x, y, R, m_brush_type);
-            /* int lx = std::max(0, x - R), rx = std::min(x + R, SIZE - 1), */
-            /*     ly = std::max(0, y - R), ry = std::min(y + R, SIZE - 1); */
-            /* for (y = ly; y <= ry; ++y) { */
-            /*     for (x = lx; x <= rx; ++x) { */
-            /*         m_world->spawn_particle(x, y, m_brush_type); */
-            /*     } */
-            /* } */
+            int x = std::max(0, int(pos.x)) % WIDTH, 
+                y = std::max(0, int(pos.y)) % HEIGHT,
+                r = static_cast<int>(m_brush_size);
+
+            m_sim.spawn_cloud(x, y, r, m_brush_type);
         }
     }
 
     void update() {
-        m_world->update();
-        Rect r = m_world->dirty_rect();
-        V2f pos = V2f(r.left, r.top),
-            size = V2f(r.right - r.left + 1, r.bottom - r.top + 1);
-        m_draw_rect = !r.is_empty();
-
-        m_dirty_rect.setPosition(pos);
-        m_dirty_rect.setSize(size);
+        m_grid.clear_selection();
+        for (int ch_y = 0; ch_y < HEIGHT / CHUNK_SIZE; ++ch_y)
+            for (int ch_x = 0; ch_x < WIDTH / CHUNK_SIZE; ++ch_x)
+                if (m_sim.is_chunk_dirty(ch_x, ch_y))
+                    m_grid.add_selection(ch_x, ch_y);
+        m_sim.update();
     }
 
     void render() {
         m_window.clear();
 
-        m_world->render();
-        m_window.draw(*m_world);
+        m_sim.render();
+        sf::Sprite sp(m_sim.get_texture());
+        m_window.draw(sp);
+
         m_window.draw(m_brush);
-        if (m_draw_rect)
-            m_window.draw(m_dirty_rect);
+        m_window.draw(m_grid);
 
         m_window.display();
 
@@ -151,7 +144,7 @@ private:
 
 
 int main() {
-    sf::RenderWindow window(sf::VideoMode(SCR_SIZE, SCR_SIZE), "SFML works!");
+    sf::RenderWindow window(sf::VideoMode(900, 900), "SFML works!");
     Game game(window);
     game.run();
 }

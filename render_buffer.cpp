@@ -30,7 +30,7 @@ void RenderBuffer::flush() {
     m_texture.update((const sf::Uint8*)m_pixels.data());
 }
 
-void RenderBuffer::flush(int x, int y, int xx, int yy) {
+void RenderBuffer::flush(int y, int yy) {
     int width = m_texture.getSize().x;
     int height = yy - y + 1;
     m_texture.update((const sf::Uint8*)(&m_pixels[xy2idx(0, y)]),

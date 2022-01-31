@@ -18,7 +18,7 @@ public:
     const sf::Color& pixel(int x, int y) const;
 
     void flush();
-    void flush(int x, int y, int xx, int yy);
+    void flush(int y, int yy);
     const sf::Texture& get_texture() const;
 };
 

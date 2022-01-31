@@ -1,5 +1,5 @@
-#ifndef PERF_TRACKER_HPP
-#define PERF_TRACKER_HPP
+#ifndef FPS_TRACKER_HPP
+#define FPS_TRACKER_HPP
 
 const int MAX_FRAME_TIMES = 64;
 
