@@ -66,6 +66,8 @@ private:
     void redraw_particle(int x, int y);
 
     //utility
+
+    //50% of all cpu time is spent here...
     bool test(int x, int y, ParticleType pt) const;
     Rect bounds() const;
 

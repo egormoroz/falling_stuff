@@ -176,8 +176,8 @@ void Simulation::update_sand(int x, int y) {
 
 void Simulation::update_water(int x, int y) {
     bool can_any = false;
-    auto test = [this, &can_any](int x, int y) {
-        bool result = this->test(x, y, ParticleType::None);
+    auto is_none = [this, &can_any](int x, int y) {
+        bool result = m_grid.get(x, y).pt == ParticleType::None;
         can_any |= result;
         return result;
     };
@@ -186,18 +186,27 @@ void Simulation::update_water(int x, int y) {
     int orig_x = x, orig_y = y;
     for (int i = 0; i < m_water_spread; ++i) {
         can_any = false;
-        if (test(x, y + 1)) {
-            ++y;
-            ++i;
-        } else if (test(x - 1, y + 1) && p.vel.x < 0) {
-            ++y;
+
+        if (y + 1 < m_grid.height()) {
+            if (is_none(x, y + 1)) {
+                ++y; ++i;
+                continue;
+            } 
+
+            if (x > 0 && is_none(x - 1, y + 1) && p.vel.x < 0) {
+                ++y; --x;
+                continue;
+            }
+
+            if (x + 1 < m_grid.width() && is_none(x + 1, y + 1) && p.vel.x > 0) {
+                ++y; ++x;
+                continue;
+            }
+        }
+
+        if (x > 0 && is_none(x - 1, y) && p.vel.x < 0) {
             --x;
-        } else if (test(x + 1, y + 1) && p.vel.x > 0) {
-            ++y;
-            ++x;
-        } else if (test(x - 1, y) && p.vel.x < 0) {
-            --x;
-        } else if (test(x + 1, y) && p.vel.x > 0) {
+        } else if (x + 1 < m_grid.width() && is_none(x + 1, y) && p.vel.x > 0) {
             ++x;
         } else if (can_any) {
             p.vel.x *= -1;
