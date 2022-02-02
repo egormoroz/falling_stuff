@@ -5,15 +5,16 @@
 #include "fps_tracker.hpp"
 #include "grid_painter.hpp"
 
-const int WIDTH = 256;
-const int HEIGHT = 256;
-const int CHUNK_SIZE = 32;
+const int WIDTH = 1024;
+const int HEIGHT = 1024;
+const int CHUNK_SIZE = 64;
+const int BLOCK_SIZE = CHUNK_SIZE / 4;
 
 
 class Game {
 public:
     Game(sf::RenderWindow &window)
-        : m_window(window), m_sim(WIDTH, HEIGHT, CHUNK_SIZE)
+        : m_window(window), m_sim(WIDTH, HEIGHT, CHUNK_SIZE, 0/*std::thread::hardware_concurrency()*/)
     { 
         window.setView(sf::View(sf::FloatRect(0.f, 0.f, WIDTH, HEIGHT)));
         m_window.setFramerateLimit(60); 
@@ -23,7 +24,7 @@ public:
         m_brush.setOutlineThickness(WIDTH / float(window.getSize().x));
         m_brush.setFillColor(sf::Color::Transparent);
 
-        m_grid.update(WIDTH, HEIGHT, CHUNK_SIZE, CHUNK_SIZE);
+        m_grid.update(WIDTH, HEIGHT, BLOCK_SIZE, BLOCK_SIZE);
     }
 
     void run() {
@@ -48,7 +49,7 @@ private:
 
     float m_brush_size = 1;
     sf::RectangleShape m_brush;
-    ParticleType m_brush_type;
+    ParticleType m_brush_type = ParticleType::None;
 
     sf::Clock m_clk, m_tracker_clock;
     sf::Time m_delta_acc;
@@ -112,18 +113,18 @@ private:
     }
 
     void update() {
+        m_sim.update(false);
         m_grid.clear_selection();
-        for (int ch_y = 0; ch_y < HEIGHT / CHUNK_SIZE; ++ch_y)
-            for (int ch_x = 0; ch_x < WIDTH / CHUNK_SIZE; ++ch_x)
-                if (m_sim.is_chunk_dirty(ch_x, ch_y))
-                    m_grid.add_selection(ch_x, ch_y);
-        m_sim.update();
+        for (int j = 0; j < HEIGHT / BLOCK_SIZE; ++j)
+            for (int i = 0; i < WIDTH / BLOCK_SIZE; ++i)
+                if (m_sim.is_block_dirty(i, j))
+                    m_grid.add_selection(i, j);
     }
 
     void render() {
         m_window.clear();
 
-        m_sim.render();
+        m_sim.render(false);
         sf::Sprite sp(m_sim.get_texture());
         m_window.draw(sp);
 
@@ -144,6 +145,7 @@ private:
 
 
 int main() {
+    srand(1337);
     sf::RenderWindow window(sf::VideoMode(900, 900), "SFML works!");
     Game game(window);
     game.run();

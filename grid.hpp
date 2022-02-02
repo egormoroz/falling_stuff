@@ -7,9 +7,9 @@
 template<typename T>
 class Grid {
 public:
-    Grid(int width, int height)
+    Grid(int width, int height, const T &def_val = T())
         : m_width(width), m_height(height),
-          m_data(width * height) {}
+          m_data(width * height, def_val) {}
 
     auto begin() { return m_data.begin(); }
     auto begin() const { return m_data.begin(); }

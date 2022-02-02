@@ -1,6 +1,8 @@
 #ifndef UTIL_HPP
 #define UTIL_HPP
 
+#include <cstdint>
+#include <vector>
 
 struct Rect {
     int left, top, right, bottom;

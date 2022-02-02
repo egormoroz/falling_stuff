@@ -1,1 +1,4 @@
 -IC:\libs\SFML-2.5.1\include
+-IC:\libs\boost\include
+-std=c++17
+
