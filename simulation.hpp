@@ -14,6 +14,13 @@ const sf::Time FIXED_TIME_STEP = sf::seconds(1.f / 60);
 using V2f = sf::Vector2f;
 using V2i = sf::Vector2i;
 
+const int WIDTH = 1024;
+const int HEIGHT = 1024;
+const int CHUNK_SIZE = 64;
+const int BLOCK_SIZE = CHUNK_SIZE / 4;
+const bool MULTITHREADING = true;
+
+
 enum class ParticleType {
     None = 0,
     Sand,
@@ -35,9 +42,9 @@ class Simulation {
 public:
     Simulation(int width, int height, int chunk_size, size_t n_threads);
 
-    void update(bool parallel = true);
+    void update();
 
-    void render(bool parallel = true);
+    void render();
     const sf::Texture& get_texture() const;
 
     void spawn_cloud(int cx, int cy, int r, ParticleType pt);
@@ -73,13 +80,16 @@ private:
 
     void swap(int x, int y, int xx, int yy);
 
+    void prepare_region(int i, int j);
     void update_region(int i, int j, size_t worker_idx);
     void redraw_region(int i, int j);
 
+    //division here is somewhat expensive
+    //making m_block_size const leads to a noticable reduction of cpu-time spent here
     template<BlockQuery QUERY = QBOTH>
     void mark_pixel(int x, int y, bool with_neighbours = false) {
-        int blk_x = x / m_block_size, blk_y = y / m_block_size,
-            rem_x = x % m_block_size, rem_y = y % m_block_size;
+        int blk_x = x / BLOCK_SIZE, blk_y = y / BLOCK_SIZE,
+            rem_x = x % BLOCK_SIZE, rem_y = y % BLOCK_SIZE;
         m_db.mark_block<QUERY>(blk_x, blk_y);
 
         if (!with_neighbours)
@@ -89,22 +99,22 @@ private:
             m_db.mark_block<QUERY>(blk_x - 1, blk_y);
             if (y && !rem_y)
                 m_db.mark_block<QUERY>(blk_x - 1, blk_y - 1);
-            if (rem_y + 1 == m_block_size && y + 1 < m_grid.height())
+            if (rem_y + 1 == BLOCK_SIZE && y + 1 < m_grid.height())
                 m_db.mark_block<QUERY>(blk_x - 1, blk_y + 1);
         }
 
-        if (x + 1 < m_grid.width() && rem_x + 1 == m_block_size) {
+        if (x + 1 < m_grid.width() && rem_x + 1 == BLOCK_SIZE) {
             m_db.mark_block<QUERY>(blk_x + 1, blk_y);
             if (y && !rem_y)
                 m_db.mark_block<QUERY>(blk_x + 1, blk_y - 1);
-            if (rem_y + 1 == m_block_size && y + 1 < m_grid.height())
+            if (rem_y + 1 == BLOCK_SIZE && y + 1 < m_grid.height())
                 m_db.mark_block<QUERY>(blk_x + 1, blk_y + 1);
 
         }
 
         if (y && !rem_y)
             m_db.mark_block<QUERY>(blk_x, blk_y - 1);
-        if (rem_y + 1 == m_block_size && y + 1 < m_grid.height())
+        if (rem_y + 1 == BLOCK_SIZE && y + 1 < m_grid.height())
             m_db.mark_block<QUERY>(blk_x, blk_y + 1);
     }
 };

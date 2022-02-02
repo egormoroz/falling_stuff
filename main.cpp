@@ -5,16 +5,11 @@
 #include "fps_tracker.hpp"
 #include "grid_painter.hpp"
 
-const int WIDTH = 1024;
-const int HEIGHT = 1024;
-const int CHUNK_SIZE = 64;
-const int BLOCK_SIZE = CHUNK_SIZE / 4;
-
 
 class Game {
 public:
     Game(sf::RenderWindow &window)
-        : m_window(window), m_sim(WIDTH, HEIGHT, CHUNK_SIZE, 0/*std::thread::hardware_concurrency()*/)
+        : m_window(window), m_sim(WIDTH, HEIGHT, CHUNK_SIZE, std::thread::hardware_concurrency())
     { 
         window.setView(sf::View(sf::FloatRect(0.f, 0.f, WIDTH, HEIGHT)));
         m_window.setFramerateLimit(60); 
@@ -113,7 +108,7 @@ private:
     }
 
     void update() {
-        m_sim.update(false);
+        m_sim.update();
         m_grid.clear_selection();
         for (int j = 0; j < HEIGHT / BLOCK_SIZE; ++j)
             for (int i = 0; i < WIDTH / BLOCK_SIZE; ++i)
@@ -124,12 +119,12 @@ private:
     void render() {
         m_window.clear();
 
-        m_sim.render(false);
+        m_sim.render();
         sf::Sprite sp(m_sim.get_texture());
         m_window.draw(sp);
 
         m_window.draw(m_brush);
-        m_window.draw(m_grid);
+        /* m_window.draw(m_grid); */
 
         m_window.display();
 

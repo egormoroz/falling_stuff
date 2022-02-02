@@ -45,77 +45,90 @@ Simulation::Simulation(int width, int height, int chunk_size, size_t n_threads)
     }
 }
 
-void Simulation::update(bool parallel) {
+void Simulation::update() {
     std::uniform_int_distribution<> dist(1, 4);
     int off_x = dist(m_gens[0]), off_y = dist(m_gens[0]);
     m_partitioner.shift(off_x, off_y);
     m_db.new_shift(off_x, off_y);
-    
-    int n = m_partitioner.num_xbounds(), m = m_partitioner.num_ybounds();
-    for (int j = 0; j < m - 1; j += 2) {
-        for (int i = 0; i < n - 1; i += 2) {
-            auto task = [=](size_t worker_idx) { update_region(i, j, worker_idx); };
-            if (parallel)
-                m_pool.push_task(task);
-            else 
-                task(0);
-        }
-    }
-    if (parallel)
-        m_pool.launch_and_wait();
 
-    for (int j = 0; j < m - 1; j += 2) {
-        for (int i = 1; i < n - 1; i += 2) {
-            auto task = [=](size_t worker_idx) { update_region(i, j, worker_idx); };
-            if (parallel)
-                m_pool.push_task(task);
-            else 
-                task(0);
-        }
-    }
-    if (parallel)
-        m_pool.launch_and_wait();
-
-    for (int j = 1; j < m - 1; j += 2) {
-        for (int i = 0; i < n - 1; i += 2) {
-            auto task = [=](size_t worker_idx) { update_region(i, j, worker_idx); };
-            if (parallel)
-                m_pool.push_task(task);
-            else 
-                task(0);
-        }
-    }
-    if (parallel)
-        m_pool.launch_and_wait();
-
-    for (int j = 1; j < m - 1; j += 2) {
-        for (int i = 1; i < n - 1; i += 2) {
-            auto task = [=](size_t worker_idx) { update_region(i, j, worker_idx); };
-            if (parallel)
-                m_pool.push_task(task);
-            else 
-                task(0);
-        }
-    }
-    if (parallel)
-        m_pool.launch_and_wait();
-
-    m_update_dir *= -1;
-}
-
-void Simulation::render(bool parallel) {
     int n = m_partitioner.num_xbounds() - 1, m = m_partitioner.num_ybounds() - 1;
     for (int j = 0; j < m; ++j) {
         for (int i = 0; i < n; ++i) {
-            auto task = [=](size_t){ redraw_region(i, j); };
-            if (parallel)
+            auto task = [=](size_t){ prepare_region(i, j); };
+            if (MULTITHREADING)
                 m_pool.push_task(task);
             else
                 task(0);
         }
     }
-    if (parallel)
+    if (MULTITHREADING)
         m_pool.launch_and_wait();
+
+    for (int j = 0; j < m; j += 2) {
+        for (int i = 0; i < n; i += 2) {
+            auto task = [=](size_t worker_idx) { update_region(i, j, worker_idx); };
+            if (MULTITHREADING)
+                m_pool.push_task(task);
+            else 
+                task(0);
+        }
+    }
+    if (MULTITHREADING)
+        m_pool.launch_and_wait();
+
+    for (int j = 0; j < m; j += 2) {
+        for (int i = 1; i < n; i += 2) {
+            auto task = [=](size_t worker_idx) { update_region(i, j, worker_idx); };
+            if (MULTITHREADING)
+                m_pool.push_task(task);
+            else 
+                task(0);
+        }
+    }
+    if (MULTITHREADING)
+        m_pool.launch_and_wait();
+
+    for (int j = 1; j < m; j += 2) {
+        for (int i = 0; i < n; i += 2) {
+            auto task = [=](size_t worker_idx) { update_region(i, j, worker_idx); };
+            if (MULTITHREADING)
+                m_pool.push_task(task);
+            else 
+                task(0);
+        }
+    }
+    if (MULTITHREADING)
+        m_pool.launch_and_wait();
+
+    for (int j = 1; j < m; j += 2) {
+        for (int i = 1; i < n; i += 2) {
+            auto task = [=](size_t worker_idx) { update_region(i, j, worker_idx); };
+            if (MULTITHREADING)
+                m_pool.push_task(task);
+            else 
+                task(0);
+        }
+    }
+    if (MULTITHREADING)
+        m_pool.launch_and_wait();
+
+    m_update_dir *= -1;
+}
+
+void Simulation::render() {
+    int n = m_partitioner.num_xbounds() - 1, m = m_partitioner.num_ybounds() - 1;
+    for (int j = 0; j < m; ++j) {
+        for (int i = 0; i < n; ++i) {
+            auto task = [=](size_t){ redraw_region(i, j); };
+            if (MULTITHREADING)
+                m_pool.push_task(task);
+            else
+                task(0);
+        }
+    }
+    if (MULTITHREADING)
+        m_pool.launch_and_wait();
+
     m_buffer.flush();
 }
 
@@ -123,7 +136,7 @@ void Simulation::update_particle(int x, int y, size_t worker_idx) {
     Particle &p = m_grid.get(x, y);
     if (p.been_updated)
         return;
-    p.been_updated = true;
+    /* p.been_updated = true; */
 
     switch (p.pt) {
     case ParticleType::Sand:
@@ -136,42 +149,44 @@ void Simulation::update_particle(int x, int y, size_t worker_idx) {
         update_fire(x, y, worker_idx);
         break;
     default:
+        p.been_updated = true;
         break;
     };
 }
 
 void Simulation::update_sand(int x, int y) {
     auto test = [this](int x, int y) {
-        return this->test(x, y, ParticleType::None)
-            || this->test(x, y, ParticleType::Water);
+        ParticleType pt = m_grid.get(x, y).pt;
+        return pt == ParticleType::None || pt == ParticleType::Water;
     };
+
     Particle &p = m_grid.get(x, y);
     p.vel.y += 1; //gravity
-    int n = p.vel.y / 16, orig_x = x, orig_y = y;
+    int n = std::max(1, p.vel.y / 16), orig_x = x, orig_y = y;
     while (n--) {
-        if (!test(x, y + 1)) {
-            if (this->test(x, y + 1, ParticleType::Sand)) {
-                p.vel.y = std::min(p.vel.y, m_grid.get(x, y + 1).vel.y);
-            } else {
-                /* p.vel.y = 0; */
-                p.vel.y -= 2;
-                p.vel.y = std::max(p.vel.y, 0);
-            }
+        if (y + 1 >= m_grid.height()) {
+            p.vel.y = 0;
             break;
         }
-        ++y;
+
+        if (test(x, y + 1)) {
+            ++y;
+        } else if (x > 0 && test(x - 1, y + 1)) {
+            ++y; --x;
+        } else if (x + 1 < m_grid.width() && test(x + 1, y + 1)) {
+            ++y; ++x;
+        } else if (m_grid.get(x, y + 1).pt == ParticleType::Sand) {
+            p.vel.y = m_grid.get(x, y + 1).vel.y;//std::min(p.vel.y, m_grid.get(x, y + 1).vel.y);
+        } else {
+            p.vel.y -= 2;
+            p.vel.y = std::max(p.vel.y, 0);
+        }
     }
 
-    if (test(x, y + 1)) {
-        ++y;
-    } else if (test(x - 1, y + 1)) {
-        --x; ++y;
-    } else if (test(x + 1, y + 1)) {
-        ++x; ++y;
-    }
-
-    if (x != orig_x || y != orig_y)
+    if (x != orig_x || y != orig_y) {
+        p.been_updated = true;
         swap(orig_x, orig_y, x, y);
+    }
 }
 
 void Simulation::update_water(int x, int y) {
@@ -215,12 +230,15 @@ void Simulation::update_water(int x, int y) {
         }
     }
 
-    if (orig_x != x || orig_y != y)
+    if (orig_x != x || orig_y != y) {
+        p.been_updated = true;
         swap(orig_x, orig_y, x, y);
+    }
 }
 
 void Simulation::update_fire(int x, int y, size_t worker_idx) {
     Particle &p = m_grid.get(x, y);
+    p.been_updated = true;
     std::uniform_real_distribution<float> dist;
     auto &gen = m_gens[worker_idx];
 
@@ -287,8 +305,9 @@ void Simulation::spawn_cloud(int cx, int cy, int r, ParticleType pt) {
     rect = rect.intersection(bounds());
     std::uniform_real_distribution<float> dist(-1.f, 1.f);
 
-    for (int y = rect.top; y <= rect.bottom; ++y) {
-        for (int x = rect.left; x <= rect.right; ++x) {
+    int st = pt == ParticleType::Water || pt == ParticleType::Sand ? 2 : 1;
+    for (int y = rect.top; y <= rect.bottom; y += st) {
+        for (int x = rect.left; x <= rect.right; x += st) {
             if (distance(x, y) <= r*r) {
                 Particle p;
                 p.pt = pt;
@@ -318,16 +337,24 @@ void Simulation::swap(int x, int y, int xx, int yy) {
     mark_pixel(xx, yy, true);
 }
 
+void Simulation::prepare_region(int i, int j) {
+    if (!m_db.test_region<QUPDATE>(i, j))
+        return;
+    int left = m_partitioner.x_bound(i), top = m_partitioner.y_bound(j),
+        right = m_partitioner.x_bound(i + 1) - 1, bottom = m_partitioner.y_bound(j + 1) - 1;
+    for (int y = top; y <= bottom; ++y) {
+        for (int x = left; x <= right; ++x) {
+            m_grid.get(x, y).been_updated = false;
+        }
+    }
+}
+
 void Simulation::update_region(int i, int j, size_t worker_idx) {
     if (!m_db.test_region<QUPDATE>(i, j))
         return;
     m_db.reset_region<QUPDATE>(i, j);
     int left = m_partitioner.x_bound(i), top = m_partitioner.y_bound(j),
         right = m_partitioner.x_bound(i + 1) - 1, bottom = m_partitioner.y_bound(j + 1) - 1;
-
-    for (int y = top; y <= bottom; ++y)
-        for (int x = left; x <= right; ++x)
-            m_grid.get(x, y).been_updated = false;
 
     if (m_update_dir > 0) {
         for (int y = bottom; y >= top; --y)
