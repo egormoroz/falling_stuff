@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.12)
-#set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON CACHE INTERNAL "") # works
 
 set(LIBS_FOLDER "C:/libs/SFML-2.5.1/lib/")
@@ -20,7 +20,11 @@ target_include_directories(falling_stuff PUBLIC
     "${PROJECT_BINARY_DIR}"
     ${EXTRA_INCLUDES})
 
+IF("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
+    SET(EXTRA_LIBS ${DBG_LIBS})
+ELSE("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
+    SET(EXTRA_LIBS ${RLS_LIBS})
+ENDIF()
 
-# target_link_libraries(falling_stuff debug ${DBG_LIBS})
-target_link_libraries(falling_stuff optimized ${RLS_LIBS})
+target_link_libraries(falling_stuff ${EXTRA_LIBS})
 

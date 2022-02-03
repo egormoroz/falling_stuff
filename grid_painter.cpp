@@ -36,12 +36,12 @@ void GridPainter::add_selection(int x, int y, const sf::Color &color) {
 
 void GridPainter::update_vertices(const sf::Color &color) {
     m_vertices.clear();
-    for (int i = 0; i < m_width; ++i) {
+    for (int i = 0; i <= m_width; ++i) {
         m_vertices.emplace_back(V2f(i * m_cell_width, 0.f), color);
         m_vertices.emplace_back(V2f(i * m_cell_width, m_height * m_cell_height), color);
     }
 
-    for (int i = 0; i < m_height; ++i) {
+    for (int i = 0; i <= m_height; ++i) {
         m_vertices.emplace_back(V2f(0.f, i * m_cell_height), color);
         m_vertices.emplace_back(V2f(m_width * m_cell_width, i * m_cell_height), color);
     }

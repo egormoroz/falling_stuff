@@ -11,6 +11,10 @@ public:
         : m_width(width), m_height(height),
           m_data(width * height, def_val) {}
 
+    bool contains(int x, int y) const {
+        return x >= 0 && y >= 0 && x < m_width && y < m_height;
+    }
+
     auto begin() { return m_data.begin(); }
     auto begin() const { return m_data.begin(); }
     auto end() { return m_data.end(); }

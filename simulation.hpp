@@ -14,11 +14,11 @@ const sf::Time FIXED_TIME_STEP = sf::seconds(1.f / 60);
 using V2f = sf::Vector2f;
 using V2i = sf::Vector2i;
 
-const int WIDTH = 1024;
-const int HEIGHT = 1024;
-const int CHUNK_SIZE = 64;
+const int WIDTH = 2048;
+const int HEIGHT = 2048;
+const int CHUNK_SIZE = 256;
 const int BLOCK_SIZE = CHUNK_SIZE / 4;
-const bool MULTITHREADING = true;
+const bool MULTITHREADING = false;
 
 
 enum class ParticleType {
@@ -43,6 +43,7 @@ public:
     Simulation(int width, int height, int chunk_size, size_t n_threads);
 
     void update();
+    void update_columnwise();
 
     void render();
     const sf::Texture& get_texture() const;
@@ -50,6 +51,7 @@ public:
     void spawn_cloud(int cx, int cy, int r, ParticleType pt);
 
     bool is_block_dirty(int blk_x, int blk_y) const;
+    int num_updated_particles() const;
 
 private:
     Grid<Particle> m_grid;
@@ -62,27 +64,24 @@ private:
     std::vector<std::mt19937> m_gens;
     Partitioner m_partitioner;
     DirtyBlocks m_db;
+    int m_updated_particles;
 
     //Physics
-    void update_particle(int x, int y, size_t worker_idx);
+    void prepare_region(int i, int j);
+    int update_region(int i, int j, size_t worker_idx);
+
+    int update_particle(int x, int y, size_t worker_idx);
     void update_sand(int x, int y);
     void update_water(int x, int y);
     void update_fire(int x, int y, size_t worker_idx);
 
     //Graphics
+    void redraw_region(int i, int j);
     void redraw_particle(int x, int y);
 
     //utility
-
-    //50% of all cpu time is spent here...
-    bool test(int x, int y, ParticleType pt) const;
-    Rect bounds() const;
-
     void swap(int x, int y, int xx, int yy);
-
-    void prepare_region(int i, int j);
-    void update_region(int i, int j, size_t worker_idx);
-    void redraw_region(int i, int j);
+    bool test(int x, int y, ParticleType pt) const;
 
     //division here is somewhat expensive
     //making m_block_size const leads to a noticable reduction of cpu-time spent here

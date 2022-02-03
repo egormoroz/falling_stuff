@@ -1,2 +1,3 @@
 -IC:\libs\SFML-2.5.1\include
+-std=c++17
 
