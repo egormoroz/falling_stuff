@@ -13,18 +13,15 @@ list(TRANSFORM RLS_LIBS PREPEND ${LIBS_FOLDER})
 
 project(falling_stuff)
 
-add_executable(falling_stuff main.cpp render_buffer.cpp simulation.cpp util.cpp fps_tracker.cpp 
-    grid_painter.cpp partitioner.cpp)
+add_executable(falling_stuff main.cpp render_buffer.cpp simulation.cpp
+    fps_tracker.cpp grid_painter.cpp world.cpp xorshift.cpp)
 
 target_include_directories(falling_stuff PUBLIC
     "${PROJECT_BINARY_DIR}"
     ${EXTRA_INCLUDES})
 
-IF("${CMAKE_BUILD_TYPE}" STREQUAL "Debug")
-    SET(EXTRA_LIBS ${DBG_LIBS})
-ELSE("${CMAKE_BUILD_TYPE}" STREQUAL "Release")
-    SET(EXTRA_LIBS ${RLS_LIBS})
-ENDIF()
+# SET(EXTRA_LIBS ${DBG_LIBS})
+SET(EXTRA_LIBS ${RLS_LIBS})
 
 target_link_libraries(falling_stuff ${EXTRA_LIBS})
 

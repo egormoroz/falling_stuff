@@ -5,12 +5,17 @@
 #include "fps_tracker.hpp"
 #include "grid_painter.hpp"
 
+using V2f = sf::Vector2f;
+using V2i = sf::Vector2i;
+
+const int WIDTH = Block::BLOCK_SIZE;
+const int HEIGHT = Block::BLOCK_SIZE;
 
 class Game {
 public:
     Game(sf::RenderWindow &window)
-        : m_window(window), m_sim(WIDTH, HEIGHT, CHUNK_SIZE, std::thread::hardware_concurrency()),
-          m_view(sf::FloatRect(0.f, 0.f, WIDTH, HEIGHT))
+        : m_window(window),
+          m_view(sf::FloatRect(0.f, 0.f, Block::BLOCK_SIZE, Block::BLOCK_SIZE))
     { 
         m_window.setView(m_view);
         m_window.setFramerateLimit(60); 
@@ -20,14 +25,15 @@ public:
         m_brush.setOutlineThickness(WIDTH / float(window.getSize().x));
         m_brush.setFillColor(sf::Color::Transparent);
 
-        m_grid.update(WIDTH / BLOCK_SIZE, HEIGHT / BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+        m_grid.update(WIDTH / Block::CHUNK_SIZE, HEIGHT / Block::CHUNK_SIZE, Block::CHUNK_SIZE, Block::CHUNK_SIZE);
+        /* m_grid.update(WIDTH / BLOCK_SIZE, HEIGHT / BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE); */
 
         m_font.loadFromFile("Courier Prime.ttf");
         m_text.setFont(m_font);
         m_text.setFillColor(sf::Color::White);
         /* m_text.setOutlineColor(sf::Color::White); */
         /* m_text.setOutlineThickness(1.f); */
-        m_text.setCharacterSize(m_window.getSize().x / 32);
+        m_text.setCharacterSize(m_view.getSize().x / 48);
     }
 
     void run() {
@@ -36,11 +42,11 @@ public:
 
             sf::Time delta = m_clk.restart();
             m_tracker.push(delta.asSeconds() * 1000.f);
-            m_delta_acc += delta;
-            while (m_delta_acc > FIXED_TIME_STEP) {
+            /* m_delta_acc += delta; */
+            /* while (m_delta_acc > FIXED_TIME_STEP) { */
                 update();
-                m_delta_acc -= FIXED_TIME_STEP;
-            }
+                /* m_delta_acc -= FIXED_TIME_STEP; */
+            /* } */
 
             render();
         }
@@ -74,16 +80,19 @@ private:
                 m_window.close();
             } else if (event.type == sf::Event::MouseWheelScrolled) {
                 m_brush_size += event.mouseWheelScroll.delta;
-                if (m_brush_size < 1)
-                    m_brush_size = 1;
+                if (m_brush_size < 0)
+                    m_brush_size = 0;
                 m_brush.setSize(2.f * V2f(m_brush_size, m_brush_size));
             } else if (event.type == sf::Event::KeyPressed) {
                 switch (event.key.code) {
                 case sf::Keyboard::Escape:
                     m_window.close();
                     break;
-                case sf::Keyboard::Space:
+                case sf::Keyboard::Enter:
                     m_draw_grid = !m_draw_grid;
+                    break;
+                case sf::Keyboard::Space:
+                    m_sim.update();
                     break;
                 case sf::Keyboard::Num0:
                     m_brush_type = ParticleType::None;
@@ -126,7 +135,7 @@ private:
 
     void handle_camera_movement() {
         using Kbd = sf::Keyboard;
-        const float SPD = BLOCK_SIZE * 0.5f;
+        const float SPD = Block::CHUNK_SIZE * 0.1f;
         const float ZOOM_SPD = 1.f;
         if (Kbd::isKeyPressed(Kbd::W))
             m_view.move(0.f, -SPD);
@@ -146,9 +155,9 @@ private:
         handle_camera_movement();
         m_sim.update();
         m_grid.clear_selection();
-        for (int j = 0; j < HEIGHT / BLOCK_SIZE; ++j)
-            for (int i = 0; i < WIDTH / BLOCK_SIZE; ++i)
-                if (m_sim.is_block_dirty(i, j))
+        for (int j = 0; j < HEIGHT / Block::CHUNK_SIZE; ++j)
+            for (int i = 0; i < WIDTH / Block::CHUNK_SIZE; ++i)
+                if (m_sim.is_chunk_dirty(i, j))
                     m_grid.add_selection(i, j);
     }
 
@@ -165,9 +174,11 @@ private:
             m_window.draw(m_grid);
 
         char buf[128];
-        sprintf(buf, "Updated particles this frame: %d\n"
-                "FPS: %6f\nAvg frame time: %6f\nLongest frame time: %6f" , 
-                m_sim.num_updated_particles(), m_tracker.avg_fps(), 
+        int n_updated = m_sim.num_updated_particles(), n_tested = m_sim.num_tested_particles();
+        float ratio = n_tested ? float(n_updated) / n_tested : 0.f;
+        sprintf(buf, "Updated / Tested particles this frame: %d / %d [ %.2f ]\n"
+                "FPS: %.2f\nAvg frame time: %.2f\nLongest frame time: %.2f", 
+                n_updated, n_tested, ratio, m_tracker.avg_fps(), 
                 m_tracker.avg_frame_time(), m_tracker.longest());
         m_text_str = buf;
         m_text.setString(m_text_str);

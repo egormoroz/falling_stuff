@@ -36,6 +36,11 @@ public:
         return true;
     }
 
+    void load(std::queue<T> && other) {
+        std::lock_guard<std::mutex> lock(m_mtx);
+        m_data = std::move(other);
+    }
+
 private:
     std::queue<T> m_data;
     std::mutex m_mtx;
@@ -63,6 +68,11 @@ public:
     void push_task(Task && task) {
         m_tasks.push(std::move(task));
         ++m_num_tasks;
+    }
+
+    void load_tasks(std::queue<Task> && q) {
+        m_num_tasks += q.size();
+        m_tasks.load(std::move(q));
     }
 
     ~ThreadPool() {
