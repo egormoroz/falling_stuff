@@ -67,6 +67,16 @@ struct Rect {
         return left == other.left && top == other.top
             && right == other.right && bottom == other.bottom;
     }
+
+    //doens't perform any checks
+    T width() const { return right - left + 1; }
+    //doens't perform any checks
+    T height() const { return bottom - top + 1; }
+
+    //doens't perform any checks
+    T area() const {
+        return width() * height();
+    }
 };
 
 struct Block {
@@ -114,12 +124,11 @@ inline Rect<int> chunk_bounds(int ch_x, int ch_y) {
 //which will be generated or loaded / unloaded dynamically
 class World {
 public:
-    //multiple blocks is a little bit too much for me to handle atm...
-    /* static const size_t NUM_BLOCKS = 1; */
+    static const size_t NUM_BLOCKS = 12;
 
     World();
 
-    bool contains_chunk(size_t ch_x, size_t ch_y) const;
+    bool is_chunk_loaded(size_t ch_x, size_t ch_y) const;
 
     Block::Chunk& get_chunk(size_t ch_x, size_t ch_y);
     const Block::Chunk& get_chunk(size_t ch_x, size_t ch_y) const;
@@ -131,10 +140,12 @@ public:
     //better be done in parallel...
     //fits dirty rects and swaps next and current
     //and also updates needs_redrawing
+    //TODO: Rewrite this for multiple blocks
     void fit_dirty_rects();
 
     //enumerates dirty chunks in checkers fashion
     //MODE: 0 - update mode, 1 - redraw mode
+    //TODO: Get rid of this and use enumerate_blocks(...)
     template<int PASS, int MODE = 0, typename F>
     void enumerate(F &f) {
         static_assert(PASS >= 0 && PASS <= 4, "only 4 passes are possible");
@@ -197,9 +208,54 @@ public:
         };
     }
 
+    bool is_block_loaded(size_t blk_x, size_t blk_y) const;
+
+    Block& get_block(size_t blk_x, size_t blk_y);
+    const Block& get_block(size_t blk_x, size_t blk_y) const;
+
+    //enumerates all loaded blocks row by row, each from left to right
+    template<typename F>
+    void enumerate_blocks(F &f) {
+        for (size_t j = 0; j < NUM_BLOCKS; ++j) {
+            for (size_t i = 0; i < NUM_BLOCKS; ++i) {
+                size_t slot = m_slotmap[j][i];
+                if (slot == NUM_BLOCKS)
+                    continue;
+                size_t blk_x = m_left + i, blk_y = m_top + j;
+                f(blk_x, blk_y, m_blocks[slot]);
+            }
+        }
+    }
+
+    void load_block(size_t blk_x, size_t blk_y);
+
 private:
-    /* Block m_blocks[NUM_BLOCKS]; */
     Block m_block;
+    size_t m_left, m_top;
+    uint8_t m_slotmap[NUM_BLOCKS][NUM_BLOCKS];
+    //slots for storing blocks
+    //these are supposed to be lying contiguosly in the world
+    //(in the worst case - in a straight line with lenghth of NUM_BLOCKS blocks)
+    Block m_blocks[NUM_BLOCKS];
+
+    //This method gets called during the update of the slotmap
+    //so it'd better not touch anything!
+    void unload_block(size_t blk_x, size_t blk_y);
+
+    //--------------Helpers--------------
+
+    bool contains_block(size_t blk_x, size_t blk_y) const;
+    size_t get_block_slot(size_t blk_x, size_t blk_y) const;
+
+    size_t find_unoccupied() const;
+    bool furthest_occupied(size_t blk_x, size_t blk_y,
+            size_t &furthest_x, size_t &furthest_y) const;
+
+    //returns a slot that got freed after applying new bounds (or NUM_BLOCKS if none was freed)
+    size_t recalc_slotmap(size_t new_left, size_t new_top);
+
+    //reserves a place for the block and removes the furthest block(s) if needed
+    size_t include_block(size_t blk_x, size_t blk_y);
 };
 
 #endif
