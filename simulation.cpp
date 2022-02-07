@@ -3,6 +3,7 @@
 #include <cassert>
 #include <numeric>
 #include <random>
+#include "world.hpp"
 
 const uint16_t TIME_STEP_MILLIS = FIXED_TIME_STEP.asMilliseconds();
 
@@ -33,11 +34,14 @@ const V2i OFFS[8] = {
     { -1,  1 }, { 0,  1 }, { 1,  1 }
 };
 
-static int y_dir = 1, dir_state = 0;
+const size_t VISIBLE_WIDTH = 1024;
+const size_t VISIBLE_HEIGHT = 512;
 
 Simulation::Simulation()
-    : m_buffer(Block::BLOCK_SIZE, Block::BLOCK_SIZE), m_water_spread(4), 
-      m_upd_vdir(0), m_upd_hdir(0), m_upd_dir_state(1), m_world(new World())
+    : m_buffer(VISIBLE_WIDTH, VISIBLE_HEIGHT), m_water_spread(8), 
+      m_upd_vdir(0), m_upd_hdir(0), m_upd_dir_state(1), m_world(new World()),
+      m_view(0, 0, VISIBLE_WIDTH - 1, VISIBLE_HEIGHT - 1),
+      m_scheduler(*this, 3)
 {
     std::fill(std::begin(m_updated_particles), std::end(m_updated_particles), 0);
     std::fill(std::begin(m_tested_particles), std::end(m_tested_particles), 0);
@@ -50,12 +54,12 @@ void Simulation::update() {
         m_upd_vdir = -1;
         break;
     case 2:
-        m_upd_hdir = -1;
-        m_upd_vdir = 1;
-        break;
-    case 3:
         m_upd_hdir = 1;
         m_upd_vdir = -1;
+        break;
+    case 3:
+        m_upd_hdir = -1;
+        m_upd_vdir = 1;
         break;
     case 4:
         m_upd_hdir = 1;
@@ -66,98 +70,99 @@ void Simulation::update() {
     };
     std::fill(std::begin(m_updated_particles), std::end(m_updated_particles), 0);
     std::fill(std::begin(m_tested_particles), std::end(m_tested_particles), 0);
-    m_world->fit_dirty_rects();
+    m_world->fit_dirty_rects(false);
 
-    auto prep = [this](size_t ch_x, size_t ch_y, Block::Chunk &ch) {
-        m_tasks_buffer.push([&ch] (size_t) {
-            ch.next_dirty_rect.reset();
-            Rect<int> &r = ch.cur_dirty_rect;
-            for (size_t y = r.top; y <= r.bottom; ++y)
-                for (size_t x = r.left; x <= r.right; ++x)
-                    ch.data[y % Block::CHUNK_SIZE][x % Block::CHUNK_SIZE].set_updated<false>();
-        });
+    auto f = [this](size_t blk_x, size_t blk_y, Block &blk) {
+        size_t offx = blk_x * Block::N, offy = blk_y * Block::N;
+        for (size_t j = 0; j < Block::N; ++j)
+            for (size_t i = 0; i < Block::N; ++i)
+                m_scheduler.push_chunk(offx + i, offy + j, &blk.chunks[j][i]);
     };
-    m_world->enumerate<0>(prep);
-    m_pool.load_tasks(std::move(m_tasks_buffer));
-    m_pool.launch_and_wait();
+    m_scheduler.clear();
+    m_world->enumerate_blocks(f);
 
-    auto f = [this](size_t ch_x, size_t ch_y, Block::Chunk &ch) {
-        m_tasks_buffer.push([this, ch_x, ch_y, &ch](size_t worker_idx) {
-            update_chunk(ch_x, ch_y, ch, worker_idx);
-        });
-    };
-    m_world->enumerate<1>(f);
-    m_pool.load_tasks(std::move(m_tasks_buffer));
-    m_pool.launch_and_wait();
-
-    m_world->enumerate<2>(f);
-    m_pool.load_tasks(std::move(m_tasks_buffer));
-    m_pool.launch_and_wait();
-
-    m_world->enumerate<3>(f);
-    m_pool.load_tasks(std::move(m_tasks_buffer));
-    m_pool.launch_and_wait();
-
-    m_world->enumerate<4>(f);
-    m_pool.load_tasks(std::move(m_tasks_buffer));
-    m_pool.launch_and_wait();
+    m_scheduler.run(scheduler::Prepare);
+    m_scheduler.run(scheduler::Update);
 
     std::uniform_int<int8_t> dist(1, 4);
     m_upd_dir_state = dist(m_gens[0]);
 }
 
-void Simulation::update_chunk(size_t ch_x, size_t ch_y, Block::Chunk &ch,
-        size_t worker_idx) 
-{
-    Rect<int> r = ch.cur_dirty_rect;
-    auto get_particle = [&ch](size_t x, size_t y) -> Particle& {
-        return ch.data[y % Block::CHUNK_SIZE][x % Block::CHUNK_SIZE];
-    };
+void Simulation::prepare_chunk(size_t ch_x, size_t ch_y, Chunk &ch, size_t worker_idx) {
+    if (!ch.is_dirty())
+        return;
+    auto bounds = chunk_bounds(ch_x, ch_y).intersection(ch.cur_dirty_rect);
+    size_t offx = ch_x * Chunk::SIZE, offy = ch_y * Chunk::SIZE;
+    Rect<size_t> r(bounds.left - offx, bounds.top - offy, 
+            bounds.right - offx, bounds.bottom - offy);
+    for (size_t j = r.top; j <= r.bottom; ++j)
+        for (size_t i = r.left; i <= r.right; ++i)
+            ch.data[j][i].set_updated<false>();
+}
+
+void Simulation::update_chunk(size_t ch_x, size_t ch_y, Chunk &ch, size_t worker_idx) {
+    const Rect<int> &r = ch.cur_dirty_rect;
+    /* ch.cur_dirty_rect.reset(); */
+    /* Rect<int> r = chunk_bounds(ch_x, ch_y); */
+    /* auto get_particle = [&ch](size_t x, size_t y) -> Particle& { */
+    /*     return ch.data[y % Chunk::SIZE][x % Chunk::SIZE]; */
+    /* }; */
 
     if (m_upd_vdir > 0) {
         if (m_upd_hdir > 0) {
             for (int y = r.top; y <= r.bottom; ++y)
                 for (int x = r.left; x <= r.right; ++x)
-                    update_particle(x, y, ch, get_particle(x, y), worker_idx);
+                    update_particle(x, y, ch, m_world->get(x, y), worker_idx);
         } else {
             for (int y = r.top; y <= r.bottom; ++y)
                 for (int x = r.right; x >= r.left; --x)
-                    update_particle(x, y, ch, get_particle(x, y), worker_idx);
+                    update_particle(x, y, ch, m_world->get(x, y), worker_idx);
         }
     } else {
         if (m_upd_hdir > 0) {
             for (int y = r.bottom; y >= r.top; --y)
                 for (int x = r.left; x <= r.right; ++x)
-                    update_particle(x, y, ch, get_particle(x, y), worker_idx);
+                    update_particle(x, y, ch, m_world->get(x, y), worker_idx);
         } else {
             for (int y = r.bottom; y >= r.top; --y)
                 for (int x = r.right; x >= r.left; --x)
-                    update_particle(x, y, ch, get_particle(x, y), worker_idx);
+                    update_particle(x, y, ch, m_world->get(x, y), worker_idx);
         }
     }
 }
 
 void Simulation::render() {
-    auto f = [this](size_t ch_x, size_t ch_y, Block::Chunk &ch) {
-        m_tasks_buffer.push([this, ch_x, ch_y, &ch](size_t worker_idx) {
-            redraw_chunk(ch_x, ch_y, ch, worker_idx);
-        });
-    };
-    m_world->enumerate<0, 1>(f);
-    m_pool.load_tasks(std::move(m_tasks_buffer));
-    m_pool.launch_and_wait();
+    Rect<size_t> visible_blocks(m_view.left / Block::SIZE, m_view.top / Block::SIZE,
+            m_view.right / Block::SIZE, m_view.bottom / Block::SIZE),
+        visible_chunks(m_view.left / Chunk::SIZE, m_view.top / Chunk::SIZE,
+                m_view.right / Chunk::SIZE, m_view.bottom / Chunk::SIZE);
+    auto f = [&](size_t blk_x, size_t blk_y, Block &blk) {
+        if (!visible_blocks.contains(blk_x, blk_y))
+            return;
+        size_t offx = blk_x * Block::N, offy = blk_y * Block::N;
+        Rect<size_t> r(offx, offy, offx + Block::N - 1, offy + Block::N - 1);
+        r = r.intersection(visible_chunks);
 
+        for (size_t ch_y = r.top; ch_y <= r.bottom; ++ch_y)
+            for (size_t ch_x = r.left; ch_x <= r.right; ++ch_x)
+                m_scheduler.push_chunk(ch_x, ch_y, &blk.chunks[ch_y - offy][ch_x - offx]);
+    };
+
+    m_scheduler.clear();
+    m_world->enumerate_blocks(f);
+    m_scheduler.run(scheduler::Render);
     m_buffer.flush();
 }
 
-void Simulation::redraw_chunk(size_t ch_x, size_t ch_y, 
-        Block::Chunk& ch, size_t worker_idx) 
-{
+void Simulation::render_chunk(size_t ch_x, size_t ch_y, Chunk& ch, size_t worker_idx) {
     auto get_particle = [&ch](size_t x, size_t y) -> Particle& {
-        return ch.data[y % Block::CHUNK_SIZE][x % Block::CHUNK_SIZE];
+        return ch.data[y % Chunk::SIZE][x % Chunk::SIZE];
     };
     Rect<int> r = ch.needs_redrawing;
+    if (r.is_empty())
+        return;
     ch.needs_redrawing.reset();
+    /* Rect<int> r = chunk_bounds(ch_x, ch_y); */
     for (size_t y = r.top; y <= r.bottom; ++y) {
         for (size_t x = r.left; x <= r.right; ++x) {
             redraw_particle(x, y, get_particle(x, y));
@@ -165,9 +170,7 @@ void Simulation::redraw_chunk(size_t ch_x, size_t ch_y,
     }
 }
 
-void Simulation::update_particle(int x, int y, Block::Chunk &ch, 
-        Particle &p, size_t worker_idx) 
-{
+void Simulation::update_particle(int x, int y, Chunk &ch, Particle &p, size_t worker_idx) {
     ++m_tested_particles[worker_idx];
     if (p.been_updated())
         return;
@@ -192,7 +195,7 @@ void Simulation::update_particle(int x, int y, Block::Chunk &ch,
     };
 }
 
-void Simulation::update_particle(int x, int y, Block::Chunk &ch, Sand &p, size_t worker_idx) {
+void Simulation::update_particle(int x, int y, Chunk &ch, Sand &p, size_t worker_idx) {
     auto test = [this](int x, int y) {
         const Particle &p = m_world->get(x, y);
         return p.is<None>() || p.is<Water>();
@@ -202,7 +205,7 @@ void Simulation::update_particle(int x, int y, Block::Chunk &ch, Sand &p, size_t
         p.vy += SAND_FREEFALL_ACC; //gravity
     int n = std::max(1, p.vy / 16), orig_x = x, orig_y = y;
     while (n--) {
-        if (y + 1 >= Block::BLOCK_SIZE) {
+        if (!m_world->is_particle_loaded(x, y + 1)) {
             p.vy = 0;
             break;
         }
@@ -211,7 +214,7 @@ void Simulation::update_particle(int x, int y, Block::Chunk &ch, Sand &p, size_t
             ++y;
         } else if (x > 0 && test(x - 1, y + 1)) {
             ++y; --x;
-        } else if (x + 1 < Block::BLOCK_SIZE && test(x + 1, y + 1)) {
+        } else if (m_world->is_particle_loaded(x + 1, y + 1) && test(x + 1, y + 1)) {
             ++y; ++x;
         } else if (m_world->get(x, y + 1).is<Sand>()) {
             p.vy = m_world->get(x, y + 1).as.sand.vy;
@@ -229,7 +232,7 @@ void Simulation::update_particle(int x, int y, Block::Chunk &ch, Sand &p, size_t
     }
 }
 
-void Simulation::update_particle(int x, int y, Block::Chunk &ch, Water &p, size_t worker_idx) {
+void Simulation::update_particle(int x, int y, Chunk &ch, Water &p, size_t worker_idx) {
     bool can_any = false;
     auto is_none = [this, &can_any](int x, int y) {
         bool result = m_world->get(x, y).is<None>();
@@ -241,7 +244,7 @@ void Simulation::update_particle(int x, int y, Block::Chunk &ch, Water &p, size_
     for (int i = 0; i < m_water_spread; ++i) {
         can_any = false;
 
-        if (y + 1 < Block::BLOCK_SIZE) {
+        if (m_world->is_particle_loaded(x, y + 1)) {
             if (is_none(x, y + 1)) {
                 ++y; ++i;
                 continue;
@@ -252,7 +255,7 @@ void Simulation::update_particle(int x, int y, Block::Chunk &ch, Water &p, size_
                 continue;
             }
 
-            if (x + 1 < Block::BLOCK_SIZE && is_none(x + 1, y + 1) && p.flow_dir > 0) {
+            if (m_world->is_particle_loaded(x + 1, y + 1) && is_none(x + 1, y + 1) && p.flow_dir > 0) {
                 ++y; ++x;
                 continue;
             }
@@ -260,10 +263,11 @@ void Simulation::update_particle(int x, int y, Block::Chunk &ch, Water &p, size_
 
         if (x > 0 && is_none(x - 1, y) && p.flow_dir < 0) {
             --x;
-        } else if (x + 1 < Block::BLOCK_SIZE && is_none(x + 1, y) && p.flow_dir > 0) {
+        } else if (m_world->is_particle_loaded(x + 1, y) && is_none(x + 1, y) && p.flow_dir > 0) {
             ++x;
         } else if (can_any) {
             p.flow_dir *= -1;
+            mark(x, y);
         } else {
             break;
         }
@@ -275,31 +279,30 @@ void Simulation::update_particle(int x, int y, Block::Chunk &ch, Water &p, size_
     }
 }
 
-void Simulation::update_particle(int x, int y, Block::Chunk &ch, Fire &p, size_t worker_idx) {
+void Simulation::update_particle(int x, int y, Chunk &ch, Fire &p, size_t worker_idx) {
     std::uniform_int_distribution<uint16_t> ignite_roll(0, p.lifetime);
     auto &gen = m_gens[worker_idx];
     if (ignite_roll(gen) < FIRE_IGNITE_THRESHOLD) {
         size_t idx = std::uniform_int_distribution<size_t>(0, 7)(gen);
 
         V2i pos = OFFS[idx] + V2i(x, y);
-        if (pos.x >= 0 && pos.y >= 0 && pos.x < Block::BLOCK_SIZE
-                && pos.y < Block::BLOCK_SIZE && m_world->get(pos.x, pos.y).is<Wood>())
+        if (pos.x >= 0 && pos.y >= 0 && m_world->is_particle_loaded(pos.x, pos.y) 
+                && m_world->get(pos.x, pos.y).is<Wood>())
         {
             Particle q = Particle::create<Fire>();
             std::uniform_int_distribution<uint16_t> dist(0, 2 * FIRE_LT_DEV);
             q.as.fire.lifetime = FIRE_LT_MEAN + dist(gen) - FIRE_LT_DEV;
             m_world->get(pos.x, pos.y) = q;
-            mark<false>(pos.x, pos.y);
+            mark(pos.x, pos.y);
         }
     }
     
-    bool with_neighbours = false;
     if (p.lifetime < TIME_STEP_MILLIS) {
-        ch.data[y % Block::CHUNK_SIZE][x % Block::CHUNK_SIZE] = Particle();
-        mark<true>(x, y);
+        ch.get(x, y) = Particle();
+        mark_with_neighbours(x, y);
     } else {
         p.lifetime -= TIME_STEP_MILLIS;
-        mark<false>(x, y);
+        mark(x, y);
     }
 }
 
@@ -338,7 +341,7 @@ void Simulation::spawn_cloud(int cx, int cy, int r, ParticleType pt) {
         return dx * dx + dy * dy;
     };
     Rect<int> rect(cx - r, cy - r, cx + r, cy + r);
-    rect = rect.intersection(Rect<int>(0, 0, Block::BLOCK_SIZE - 1, Block::BLOCK_SIZE - 1));
+    rect = rect.intersection(static_cast<Rect<int>>(m_view));
     std::uniform_int_distribution<uint16_t> dist(0, FIRE_LT_DEV * 2);
 
     int st = pt == ParticleType::Water || pt == ParticleType::Sand ? 2 : 1;
@@ -368,11 +371,19 @@ void Simulation::spawn_cloud(int cx, int cy, int r, ParticleType pt) {
                     break;
                 };
                 m_world->get(x, y) = p;
-                mark<true>(x, y);
+                mark_with_neighbours(x, y);
             }
         }
     }
 //    m_world->fit_dirty_rects();
+}
+
+const Rect<int>& Simulation::chunk_dirty_rect_next(int ch_x, int ch_y) const {
+    return m_world->get_chunk(ch_x, ch_y).next_dirty_rect;
+}
+
+const Rect<int>& Simulation::chunk_dirty_rect_cur(int ch_x, int ch_y) const {
+    return m_world->get_chunk(ch_x, ch_y).cur_dirty_rect;
 }
 
 bool Simulation::is_chunk_dirty(int ch_x, int ch_y) const {
@@ -387,10 +398,25 @@ int Simulation::num_tested_particles() const {
     return std::accumulate(std::begin(m_tested_particles), std::end(m_tested_particles), 0); 
 }
 
-void Simulation::swap(int x, int y, int xx, int yy) {
-    std::swap(m_world->get(x, y), m_world->get(xx, yy));
-    mark(x, y);
-    mark(xx, yy);
+const std::vector<scheduler::LoadTracker>& Simulation::get_load_stats() const {
+    return m_scheduler.load_balance();
 }
 
+void Simulation::swap(int x, int y, int xx, int yy) {
+    std::swap(m_world->get(x, y), m_world->get(xx, yy));
+    mark_with_neighbours(x, y);
+    mark_with_neighbours(xx, yy);
+}
+
+void Simulation::mark(int x, int y) {
+    size_t xx = static_cast<size_t>(x), yy = static_cast<size_t>(y);
+    auto &ch = m_world->get_chunk(xx / Chunk::SIZE, yy / Chunk::SIZE);
+    ch.next_dirty_rect.include<false>(x, y);
+}
+
+void Simulation::mark_with_neighbours(int x, int y) {
+    size_t xx = static_cast<size_t>(x), yy = static_cast<size_t>(y);
+    auto &ch = m_world->get_chunk(xx / Chunk::SIZE, yy / Chunk::SIZE);
+    ch.next_dirty_rect.include<true>(x, y);
+}
 

@@ -2,20 +2,21 @@
 #include <algorithm>
 #include <cassert>
 #include "simulation.hpp"
-#include "fps_tracker.hpp"
 #include "grid_painter.hpp"
+#include "world.hpp"
+#include "avgtracker.hpp"
 
 using V2f = sf::Vector2f;
 using V2i = sf::Vector2i;
 
-const int WIDTH = Block::BLOCK_SIZE;
-const int HEIGHT = Block::BLOCK_SIZE;
+const int WIDTH = 1024;
+const int HEIGHT = 512;
 
 class Game {
 public:
     Game(sf::RenderWindow &window)
         : m_window(window),
-          m_view(sf::FloatRect(0.f, 0.f, Block::BLOCK_SIZE, Block::BLOCK_SIZE))
+          m_view(sf::FloatRect(0.f, 0.f, WIDTH, HEIGHT))
     { 
         m_window.setView(m_view);
         m_window.setFramerateLimit(60); 
@@ -25,7 +26,7 @@ public:
         m_brush.setOutlineThickness(WIDTH / float(window.getSize().x));
         m_brush.setFillColor(sf::Color::Transparent);
 
-        m_grid.update(WIDTH / Block::CHUNK_SIZE, HEIGHT / Block::CHUNK_SIZE, Block::CHUNK_SIZE, Block::CHUNK_SIZE);
+        m_grid.update(WIDTH / Chunk::SIZE, HEIGHT / Chunk::SIZE, Chunk::SIZE, Chunk::SIZE);
         /* m_grid.update(WIDTH / BLOCK_SIZE, HEIGHT / BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE); */
 
         m_font.loadFromFile("Courier Prime.ttf");
@@ -37,18 +38,24 @@ public:
     }
 
     void run() {
+        sf::Clock clk, total_clk;
         while (m_window.isOpen()) {
             pull_events();
 
-            sf::Time delta = m_clk.restart();
-            m_tracker.push(delta.asSeconds() * 1000.f);
+            m_totals.push(total_clk.restart());
             /* m_delta_acc += delta; */
             /* while (m_delta_acc > FIXED_TIME_STEP) { */
-                update();
+
+            clk.restart();
+            update();
+            m_upd_times.push(clk.restart());
+
                 /* m_delta_acc -= FIXED_TIME_STEP; */
             /* } */
 
             render();
+            m_render_times.push(clk.restart());
+
         }
     }
 
@@ -60,9 +67,10 @@ private:
     sf::RectangleShape m_brush;
     ParticleType m_brush_type = ParticleType::None;
 
-    sf::Clock m_clk, m_tracker_clock;
-    sf::Time m_delta_acc;
-    FpsTracker m_tracker;
+    AvgTracker<sf::Time, 64> m_totals;
+    AvgTracker<sf::Time, 64> m_upd_times;
+    AvgTracker<sf::Time, 64> m_render_times;
+    AvgTracker<int, 64> m_upd_particles;
 
     bool m_draw_grid = true;
     GridPainter m_grid;
@@ -79,7 +87,10 @@ private:
             if (event.type == sf::Event::Closed) {
                 m_window.close();
             } else if (event.type == sf::Event::MouseWheelScrolled) {
-                m_brush_size += event.mouseWheelScroll.delta;
+                float mult = 1.f;
+                if (sf::Keyboard::isKeyPressed(sf::Keyboard::LControl))
+                    mult = 10.f;
+                m_brush_size += event.mouseWheelScroll.delta * mult;
                 if (m_brush_size < 0)
                     m_brush_size = 0;
                 m_brush.setSize(2.f * V2f(m_brush_size, m_brush_size));
@@ -93,6 +104,7 @@ private:
                     break;
                 case sf::Keyboard::Space:
                     m_sim.update();
+                    m_sim.render();
                     break;
                 case sf::Keyboard::Num0:
                     m_brush_type = ParticleType::None;
@@ -135,7 +147,7 @@ private:
 
     void handle_camera_movement() {
         using Kbd = sf::Keyboard;
-        const float SPD = Block::CHUNK_SIZE * 0.1f;
+        const float SPD = Chunk::SIZE * 0.1f;
         const float ZOOM_SPD = 1.f;
         if (Kbd::isKeyPressed(Kbd::W))
             m_view.move(0.f, -SPD);
@@ -154,11 +166,6 @@ private:
     void update() {
         handle_camera_movement();
         m_sim.update();
-        m_grid.clear_selection();
-        for (int j = 0; j < HEIGHT / Block::CHUNK_SIZE; ++j)
-            for (int i = 0; i < WIDTH / Block::CHUNK_SIZE; ++i)
-                if (m_sim.is_chunk_dirty(i, j))
-                    m_grid.add_selection(i, j);
     }
 
     void render() {
@@ -173,13 +180,43 @@ private:
         if (m_draw_grid)
             m_window.draw(m_grid);
 
-        char buf[128];
+        sf::RectangleShape rs;
+        rs.setFillColor(sf::Color::Transparent);
+        rs.setOutlineThickness(1.f);
+        for (int j = 0; j < HEIGHT / Chunk::SIZE; ++j) {
+            for (int i = 0; i < WIDTH / Chunk::SIZE; ++i) {
+                auto r = m_sim.chunk_dirty_rect_next(i, j);
+                rs.setSize(V2f(r.width(), r.height()));
+                rs.setPosition(r.left, r.top);
+                rs.setOutlineColor(sf::Color::Red);
+                m_window.draw(rs);
+            }
+        }
+
+        char buf[512];
         int n_updated = m_sim.num_updated_particles(), n_tested = m_sim.num_tested_particles();
         float ratio = n_tested ? float(n_updated) / n_tested : 0.f;
-        sprintf(buf, "Updated / Tested particles this frame: %d / %d [ %.2f ]\n"
-                "FPS: %.2f\nAvg frame time: %.2f\nLongest frame time: %.2f", 
-                n_updated, n_tested, ratio, m_tracker.avg_fps(), 
-                m_tracker.avg_frame_time(), m_tracker.longest());
+        m_upd_particles.push(n_updated);
+        float avg_particles = m_upd_particles.average() / m_upd_times.average().asSeconds();
+        float fps = 1.f / m_totals.average().asSeconds();
+
+        int n = snprintf(buf, sizeof(buf), "FPS: %6.2f, frame time: %6.2f\n"
+                "Avg update time: %6.2fms, avg render time: %6.2fms\n"
+                "Updated / tested particles this frame: %dk / %dk = %4.2f\n"
+                "Avg updated particles: %6.2fmil/s -- %dk/frame\n"
+                "Thread load distribution:\n",
+                fps, m_totals.last().asSeconds() * 1000.f,
+                m_upd_times.average().asSeconds() * 1e3f, m_render_times.average().asSeconds() * 1e3f,
+                n_updated / 1000, n_tested / 1000, ratio,
+                avg_particles / 1e6f, static_cast<int>(avg_particles / 1e3f / 60)
+                );
+
+        auto &stats = m_sim.get_load_stats();
+        for (int i = 0; i < stats.size() && n < sizeof(buf); ++i) {
+            n += snprintf(buf + n, sizeof(buf) - n, "%d: %4.2f\n",
+                    i + 1, stats[i].average());
+        }
+
         m_text_str = buf;
         m_text.setString(m_text_str);
         m_text.setPosition(m_window.mapPixelToCoords(V2i(0, 0)));
@@ -191,7 +228,10 @@ private:
 
 
 int main() {
-    sf::RenderWindow window(sf::VideoMode(900, 900), "SFML works!");
+    const int SCR_WIDTH = 900;
+    const float RATIO = float(WIDTH) / float(HEIGHT);
+    const int SCR_HEIGHT = static_cast<int>(SCR_WIDTH / RATIO);
+    sf::RenderWindow window(sf::VideoMode(SCR_WIDTH, SCR_HEIGHT), "SFML works!");
     Game game(window);
     game.run();
 }

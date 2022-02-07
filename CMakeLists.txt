@@ -14,7 +14,7 @@ list(TRANSFORM RLS_LIBS PREPEND ${LIBS_FOLDER})
 project(falling_stuff)
 
 add_executable(falling_stuff main.cpp render_buffer.cpp simulation.cpp
-    fps_tracker.cpp grid_painter.cpp world.cpp xorshift.cpp)
+    fps_tracker.cpp grid_painter.cpp world.cpp xorshift.cpp world.cpp updatescheduler.cpp)
 
 target_include_directories(falling_stuff PUBLIC
     "${PROJECT_BINARY_DIR}"
